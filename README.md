@@ -23,7 +23,7 @@ Add the repo to `load-path`, then:
 
 `zmx` must be available at runtime wherever the session commands run. The dev shell provides it locally; for TRAMP paths, install/configure `zmx` on the remote host or set `term-sessions-zmx-program` connection-locally.
 
-Current remote status: noninteractive/control calls (`list`, `kill`, `history`, `send`, `run`, `wait`, and `tail`) use Emacs process APIs that can run through TRAMP `process-file`/`start-file-process`. Interactive remote attach is not yet validated or supported; from a remote `default-directory`, `term-sessions-start` and `term-sessions-open` refuse rather than accidentally running `zmx attach` on the wrong host.
+Current remote status: noninteractive/control calls (`list`, `kill`, `history`, `send`, `run`, `wait`, and `tail`) use Emacs process APIs that can run through TRAMP `process-file`/`start-file-process`. For `/ssh:`-style TRAMP directories, interactive attach runs a local `ssh host 'cd DIR && zmx attach NAME'` command inside the chosen terminal frontend, so it attaches to the remote zmx session without accidentally creating a local one. Other TRAMP methods are refused for interactive attach until implemented.
 
 `term-sessions-start` creates-or-attaches. `term-sessions-open` only opens existing sessions.
 
@@ -38,18 +38,21 @@ Commands:
 - `M-x term-sessions-send`
 - `M-x term-sessions-send-command`
 - `M-x term-sessions-run`
+- `M-x term-sessions-run-async`
 - `M-x term-sessions-wait`
+- `M-x term-sessions-wait-async`
 - `M-x term-sessions-store-org-link`
 
-Org links use the first zmx-backed local format. Storing remote Org links is refused for now so links do not misleadingly encode remote sessions as `local`:
+Org links use local or SSH-backed zmx formats:
 
 ```org
 [[term-session:zmx:local:work]]
+[[term-session:zmx:ssh:user%40host:work]]
 ```
 
 ## Frontends
 
-`vterm`, `eat`, `term`, and `shell` are implemented for local interactive attach. `ghostel` is pluggable through `term-sessions-ghostel-open-function` until its Emacs API settles.
+`vterm`, `eat`, `term`, and `shell` are implemented for local interactive attach and SSH-backed remote attach. `ghostel` is pluggable through `term-sessions-ghostel-open-function` until its Emacs API settles.
 
 ## Nix lockfile
 

@@ -24,6 +24,7 @@
 (require 'subr-x)
 (require 'tabulated-list)
 (require 'term)
+(require 'tramp)
 (require 'url-util)
 
 (declare-function comint-send-string "comint" (proc string))
@@ -66,6 +67,14 @@ This is intentionally pluggable because ghostel APIs are still evolving."
   "Default number of history lines to show from zmx history commands."
   :type 'integer)
 
+(defcustom term-sessions-ssh-program "ssh"
+  "Program used for SSH-backed remote interactive attaches."
+  :type 'string)
+
+(defcustom term-sessions-ssh-tramp-methods '("ssh" "scp" "sshx" "rsync")
+  "TRAMP methods that can be opened interactively through local ssh."
+  :type '(repeat string))
+
 (defvar term-sessions-name-history nil)
 (defvar term-sessions-command-history nil)
 
@@ -99,7 +108,10 @@ Signals `user-error' on a non-zero exit status.  The current
 
 (defun term-sessions--call-with-stdin (program stdin &rest args)
   "Run PROGRAM with STDIN and ARGS, returning stdout as a string."
-  (let ((file (make-temp-file "term-sessions-stdin-")))
+  (let ((file (make-temp-file (expand-file-name "term-sessions-stdin-"
+                                                (if (file-remote-p default-directory)
+                                                    default-directory
+                                                  temporary-file-directory)))))
     (unwind-protect
         (progn
           (with-temp-file file (insert stdin))
@@ -121,6 +133,11 @@ Signals `user-error' on a non-zero exit status.  The current
   "Run zmx with STDIN and ARGS and return stdout."
   (term-sessions--ensure-zmx)
   (apply #'term-sessions--call-with-stdin term-sessions-zmx-program stdin args))
+
+(defun term-sessions--start-zmx-process (name buffer &rest args)
+  "Start asynchronous zmx process NAME in BUFFER with ARGS."
+  (term-sessions--ensure-zmx)
+  (apply #'start-file-process name buffer term-sessions-zmx-program args))
 
 (defun term-sessions--zmx-list-names ()
   "Return a list of active zmx session names."
@@ -151,6 +168,52 @@ When COMMAND is non-nil, it is passed to zmx for session creation if needed."
   (term-sessions--command-string term-sessions-zmx-program
                                  (term-sessions--attach-args name command)))
 
+(defun term-sessions--remote-info (&optional directory)
+  "Return remote plist for DIRECTORY, or nil for local directories.
+The returned plist has keys :method, :user, :host, :target and :localname."
+  (when-let* ((remote (file-remote-p (or directory default-directory)))
+              (vec (tramp-dissect-file-name remote)))
+    (let* ((method (tramp-file-name-method vec))
+           (user (tramp-file-name-user vec))
+           (host (tramp-file-name-host vec))
+           (localname (or (file-remote-p (or directory default-directory) 'localname) "~")))
+      (list :method method
+            :user user
+            :host host
+            :target (if (and user (not (string-empty-p user)))
+                        (format "%s@%s" user host)
+                      host)
+            :localname (if (string-empty-p localname) "~" localname)))))
+
+(defun term-sessions--ssh-remote-info (&optional directory)
+  "Return SSH-capable remote info for DIRECTORY, or signal `user-error'."
+  (let ((info (term-sessions--remote-info directory)))
+    (unless info
+      (user-error "Not in a remote default-directory"))
+    (unless (member (plist-get info :method) term-sessions-ssh-tramp-methods)
+      (user-error "Interactive attach is unsupported for TRAMP method `%s'"
+                  (plist-get info :method)))
+    info))
+
+(defun term-sessions--ssh-attach-command (info name &optional command)
+  "Return local ssh command to attach to remote zmx session NAME using INFO."
+  (let* ((remote-cwd (plist-get info :localname))
+         (remote-command
+          (concat "cd " (shell-quote-argument remote-cwd)
+                  " && "
+                  (term-sessions--attach-command name command))))
+    (term-sessions--command-string term-sessions-ssh-program
+                                   (list (plist-get info :target) remote-command))))
+
+(defun term-sessions--interactive-attach-command (name &optional command)
+  "Return shell command for an interactive attach to NAME.
+Local sessions run zmx directly.  SSH TRAMP sessions are opened by running a
+local ssh command that executes zmx on the remote host."
+  (if-let ((info (term-sessions--remote-info)))
+      (term-sessions--ssh-attach-command (term-sessions--ssh-remote-info)
+                                         name command)
+    (term-sessions--attach-command name command)))
+
 (defun term-sessions--buffer-name (name &optional suffix)
   "Return a buffer name for session NAME and optional SUFFIX."
   (format "*term-session:%s%s*" name (if suffix (format ":%s" suffix) "")))
@@ -160,13 +223,12 @@ When COMMAND is non-nil, it is passed to zmx for session creation if needed."
 `make-term' adds the surrounding stars itself."
   (format "term-session:%s" name))
 
-(defun term-sessions--ensure-local-interactive-attach ()
-  "Refuse interactive attach from remote `default-directory' for now.
-Control commands use `process-file' and may run through TRAMP, but the current
-frontend adapters would run shell command strings locally or otherwise have
-unvalidated remote PTY semantics."
+(defun term-sessions--ensure-interactive-attach-supported ()
+  "Signal unless interactive attach is supported for `default-directory'.
+Local sessions are supported directly.  SSH-like TRAMP methods are supported by
+running a local ssh command that executes zmx on the remote host."
   (when (file-remote-p default-directory)
-    (user-error "Interactive zmx attach from remote default-directory is not supported yet; use zmx control commands or attach from a local buffer")))
+    (term-sessions--ssh-remote-info)))
 
 (defun term-sessions--mark-buffer (name)
   "Record NAME/backend metadata in the current buffer."
@@ -231,12 +293,17 @@ When ALLOW-CREATE is nil, require NAME to already exist according to zmx."
                                   (symbol-name term-sessions-preferred-frontend)))
          nil))
   (term-sessions--ensure-zmx)
-  (term-sessions--ensure-local-interactive-attach)
+  (term-sessions--ensure-interactive-attach-supported)
   (unless (or allow-create (term-sessions--active-p name))
     (user-error "No active zmx session named `%s'; use `term-sessions-start' to create it" name))
   (let* ((frontend (or frontend term-sessions-preferred-frontend))
-         (attach-command (term-sessions--attach-command name command))
-         (buffer-name (term-sessions--buffer-name name)))
+         (remote (term-sessions--remote-info))
+         (attach-command (term-sessions--interactive-attach-command name command))
+         (buffer-name (term-sessions--buffer-name name))
+         ;; Remote interactive attach is implemented as a local ssh command.
+         ;; Keep terminal frontends local so vterm/eat do not try to use their
+         ;; own TRAMP launching paths for the ssh wrapper itself.
+         (default-directory (if remote (expand-file-name "~/") default-directory)))
     (pcase frontend
       ('vterm (term-sessions--open-vterm name attach-command buffer-name))
       ('eat (term-sessions--open-eat name attach-command buffer-name))
@@ -306,10 +373,46 @@ With prefix argument DETACHED, pass -d and return immediately."
     (message "%s" (string-trim (apply #'term-sessions--zmx args)))))
 
 ;;;###autoload
+(defun term-sessions-run-async (name command)
+  "Run COMMAND in zmx session NAME asynchronously.
+This starts `zmx run NAME -d COMMAND...' and returns immediately.  Use
+`term-sessions-wait-async' or `term-sessions-wait' to observe completion."
+  (interactive
+   (list (term-sessions--read-name "Run async in session: " t)
+         (read-string "Command: " nil 'term-sessions-command-history)))
+  (let* ((buffer (get-buffer-create (term-sessions--buffer-name name "run")))
+         (args (append (list "run" name "-d")
+                       (split-string-and-unquote command)))
+         (proc (apply #'term-sessions--start-zmx-process
+                      (format "term-session-run:%s" name) buffer args)))
+    (set-process-sentinel
+     proc
+     (lambda (process event)
+       (when (memq (process-status process) '(exit signal))
+         (message "%s %s" (process-name process) (string-trim event)))))
+    (message "Started async zmx run in %s" name)
+    proc))
+
+;;;###autoload
 (defun term-sessions-wait (name)
   "Wait for tracked zmx tasks in session NAME to finish."
   (interactive (list (term-sessions--read-name "Wait for session: " t)))
   (message "%s" (string-trim (term-sessions--zmx "wait" name))))
+
+;;;###autoload
+(defun term-sessions-wait-async (name)
+  "Wait for tracked zmx tasks in session NAME asynchronously."
+  (interactive (list (term-sessions--read-name "Wait async for session: " t)))
+  (let* ((buffer (get-buffer-create (term-sessions--buffer-name name "wait")))
+         (proc (term-sessions--start-zmx-process
+                (format "term-session-wait:%s" name) buffer "wait" name)))
+    (set-process-sentinel
+     proc
+     (lambda (process event)
+       (when (memq (process-status process) '(exit signal))
+         (message "%s %s" (process-name process) (string-trim event)))))
+    (pop-to-buffer buffer)
+    proc))
 
 ;;;###autoload
 (defun term-sessions-history (name &optional lines vt html)
@@ -414,16 +517,21 @@ with two prefix arguments use HTML output."
   (term-sessions-tail (term-sessions-list--name-at-point)))
 
 (defun term-sessions--org-link (backend name)
-  "Build an Org link for BACKEND session NAME."
-  (format "term-session:%s:local:%s" backend (url-hexify-string name)))
+  "Build an Org link for BACKEND session NAME in `default-directory'."
+  (if-let ((info (term-sessions--remote-info)))
+      (progn
+        (term-sessions--ssh-remote-info)
+        (format "term-session:%s:ssh:%s:%s"
+                backend
+                (url-hexify-string (plist-get info :target))
+                (url-hexify-string name)))
+    (format "term-session:%s:local:%s" backend (url-hexify-string name))))
 
 ;;;###autoload
 (defun term-sessions-store-org-link (&optional name)
   "Store an Org link to persistent session NAME.
 When called from a session buffer, default to that session."
   (interactive)
-  (when (file-remote-p default-directory)
-    (user-error "Storing remote term-session Org links is not supported in this MVP"))
   (let* ((name (or name term-sessions-current-name
                    (term-sessions--read-name "Store link for session: " t)))
          (backend (or term-sessions-current-backend term-sessions-backend))
@@ -439,21 +547,44 @@ When called from a session buffer, default to that session."
 
 (defun term-sessions--org-path-components (path)
   "Parse Org term-session link PATH.
-Return a list (BACKEND LOCATION NAME)."
+Return a plist with :backend, :location, :target, and :name."
   (pcase-let ((`(,backend ,location . ,rest) (split-string path ":")))
     (unless (and backend location rest)
       (user-error "Invalid term-session link: %s" path))
-    (list backend location (url-unhex-string (string-join rest ":")))))
+    (pcase location
+      ("local"
+       (list :backend backend
+             :location location
+             :target nil
+             :name (url-unhex-string (string-join rest ":"))))
+      ("ssh"
+       (unless (cdr rest)
+         (user-error "Invalid SSH term-session link: %s" path))
+       (list :backend backend
+             :location location
+             :target (url-unhex-string (car rest))
+             :name (url-unhex-string (string-join (cdr rest) ":"))))
+      (_
+       (user-error "Unsupported term-session location: %s" location)))))
+
+(defun term-sessions--org-default-directory (components)
+  "Return `default-directory' for Org link COMPONENTS."
+  (pcase (plist-get components :location)
+    ("local" default-directory)
+    ("ssh" (format "/ssh:%s:~/" (plist-get components :target)))
+    (_ (user-error "Unsupported term-session location: %s"
+                   (plist-get components :location)))))
 
 (defun term-sessions--open-org-path (path _arg)
   "Open Org term-session link PATH.
 Open only active sessions automatically.  If the linked session is missing,
 offer to recreate it with `term-sessions-start'."
-  (pcase-let ((`(,backend ,location ,name) (term-sessions--org-path-components path)))
+  (let* ((components (term-sessions--org-path-components path))
+         (backend (plist-get components :backend))
+         (name (plist-get components :name))
+         (default-directory (term-sessions--org-default-directory components)))
     (unless (string= backend "zmx")
       (user-error "Unsupported term-session backend: %s" backend))
-    (unless (string= location "local")
-      (user-error "Unsupported term-session location: %s" location))
     (if (term-sessions--active-p name)
         (term-sessions-open name)
       (when (yes-or-no-p (format "Session `%s' is not active; recreate it? " name))
