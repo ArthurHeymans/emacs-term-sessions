@@ -1,0 +1,5 @@
+*.elc
+/result
+/result-*
+.direnv/
+progress.md
