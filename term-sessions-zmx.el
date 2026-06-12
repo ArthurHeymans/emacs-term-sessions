@@ -27,6 +27,12 @@ This variable is connection-local aware."
   :group 'term-sessions
   :type '(choice (const :tag "Unset" nil) string))
 
+(defcustom term-sessions-zmx-enrich-process-info t
+  "When non-nil, enrich `zmx list' rows with live procfs cwd/command info.
+This is best-effort and currently works on Linux hosts with `/proc' and `ps'."
+  :group 'term-sessions
+  :type 'boolean)
+
 (defmacro term-sessions-zmx--with-environment (&rest body)
   "Run BODY with connection-local zmx variables and environment."
   (declare (indent 0) (debug t))
@@ -145,6 +151,56 @@ Signals `user-error' on a non-zero exit status.  The current
       (when-let ((attrs (ignore-errors (file-attributes qualified))))
         (file-attribute-modification-time attrs)))))
 
+(defun term-sessions--process-output-string (program &rest args)
+  "Run PROGRAM with ARGS and return trimmed stdout, or nil on failure."
+  (ignore-errors
+    (with-temp-buffer
+      (let ((status (apply #'process-file program nil t nil args)))
+        (when (eq status 0)
+          (string-trim (buffer-string)))))))
+
+(defun term-sessions--zmx-process-cwd (pid)
+  "Return current working directory for process PID, or nil."
+  (let ((cwd (term-sessions--process-output-string
+              "readlink" "-f" (format "/proc/%s/cwd" pid))))
+    (unless (string-empty-p (or cwd ""))
+      cwd)))
+
+(defun term-sessions--zmx-process-args (pid)
+  "Return command line for process PID, or nil."
+  (let ((args (term-sessions--process-output-string
+               "ps" "-o" "args=" "-p" (format "%s" pid))))
+    (unless (string-empty-p (or args ""))
+      args)))
+
+(defun term-sessions--zmx-process-tpgid (pid)
+  "Return foreground process group id for process PID, or nil."
+  (when-let ((output (term-sessions--process-output-string
+                      "ps" "-o" "tpgid=" "-p" (format "%s" pid))))
+    (let ((tpgid (string-to-number output)))
+      (when (> tpgid 0)
+        tpgid))))
+
+(defun term-sessions--zmx-current-command (pid)
+  "Return best-effort current foreground command for zmx session PID."
+  (let ((tpgid (term-sessions--zmx-process-tpgid pid)))
+    (or (and tpgid (term-sessions--zmx-process-args tpgid))
+        (term-sessions--zmx-process-args pid))))
+
+(defun term-sessions--zmx-enrich-session-process-info (session)
+  "Add live cwd/command fields to SESSION when available."
+  (if (not term-sessions-zmx-enrich-process-info)
+      session
+    (if-let ((pid (plist-get session :pid)))
+        (let ((cwd (term-sessions--zmx-process-cwd pid))
+              (cmd (term-sessions--zmx-current-command pid)))
+          (when cwd
+            (setq session (plist-put session :cwd cwd)))
+          (when cmd
+            (setq session (plist-put session :current-cmd cmd)))
+          session)
+      session)))
+
 (defun term-sessions--zmx-list-sessions ()
   "Return detailed active zmx sessions as plists.
 Fields include at least :name, and may include :pid, :clients, :created,
@@ -161,7 +217,7 @@ Fields include at least :name, and may include :pid, :clients, :created,
                  (when-let ((name (plist-get entry :name)))
                    (plist-put entry :updated-time
                               (term-sessions--zmx-log-mtime name))
-                   entry))))
+                   (term-sessions--zmx-enrich-session-process-info entry)))))
            (split-string output "\n" t)))))
 
 (defun term-sessions--active-p (name)
