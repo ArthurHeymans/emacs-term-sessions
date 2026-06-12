@@ -13,7 +13,7 @@
 
 (declare-function comint-send-string "comint" (proc string))
 (declare-function eat "ext:eat" (&optional program name))
-(declare-function eat-char-mode "eat" ())
+(declare-function eat-semi-char-mode "eat" ())
 (declare-function eat-make "eat" (name program &optional startfile &rest switches))
 (declare-function ghostel-semi-char-mode "ghostel" ())
 (declare-function ghostel-exec "ghostel" (buffer program &optional args))
@@ -127,7 +127,7 @@ This is intentionally pluggable because ghostel APIs are still evolving."
     (let ((buffer (eat-make base-name "/usr/bin/env" nil "sh" "-c" command)))
       (pop-to-buffer buffer)
       (with-current-buffer buffer
-        (eat-char-mode)
+        (eat-semi-char-mode)
         (term-sessions--mark-buffer name spec)))))
 
 (defun term-sessions--open-eat-process (name program args _buffer-name &optional spec)
@@ -144,7 +144,7 @@ This uses eat's `make-process :file-handler t' path, so remote
     (let ((buffer (apply #'eat-make base-name program nil args)))
       (pop-to-buffer buffer)
       (with-current-buffer buffer
-        (eat-char-mode)
+        (eat-semi-char-mode)
         (term-sessions--mark-buffer name spec)))))
 
 (defun term-sessions--open-term (name command _buffer-name &optional spec)
