@@ -19,10 +19,10 @@
   :type 'string)
 
 (defcustom term-sessions-ssh-tramp-methods '("ssh" "scp" "sshx" "rsync" "rpc")
-  "TRAMP methods that can be opened interactively through local ssh.
-The `rpc' method is included as a frontend fallback: control operations still
-use tramp-rpc, while command-string terminal frontends can attach with a plain
-local ssh command to the same host."
+  "TRAMP methods eligible for the local SSH-wrapper fallback.
+The `rpc' method is included as a compatibility fallback: control operations
+and preferred interactive attaches still use tramp-rpc, while `ssh-wrapper'
+can attach with a plain local ssh command to the same final host."
   :group 'term-sessions
   :type '(repeat string))
 
@@ -41,11 +41,12 @@ requires the current TRAMP method to be `rpc'."
                  (const :tag "TRAMP RPC process" tramp-rpc)
                  (const :tag "Local SSH wrapper" ssh-wrapper)))
 
-(defcustom term-sessions-tramp-process-frontends '(term)
-  "Frontends that can attach by starting zmx through TRAMP process APIs.
-The built-in `term' frontend is supported as a dependency-free fallback.
-Command-string frontends such as vterm/eat use the SSH wrapper fallback for
-simple SSH-compatible paths until their direct TRAMP adapters are hardened."
+(defcustom term-sessions-tramp-process-frontends '(term eat ghostel vterm shell)
+  "Frontends that can attach through TRAMP process APIs.
+These frontends start the attach command while `default-directory' is remote,
+so TRAMP or tramp-rpc owns the transport.  The local SSH wrapper remains
+available as an explicit fallback via `term-sessions-attach-transport' and as
+automatic fallback when `auto' TRAMP attach fails for a simple SSH-like path."
   :group 'term-sessions
   :type '(repeat symbol))
 
@@ -153,19 +154,12 @@ localname, prefix, and directory."
   (when (plist-get info :hop)
     (user-error "SSH wrapper attach does not support multi-hop TRAMP paths; use `tramp-process' transport"))
   (let* ((remote-cwd (plist-get info :localname))
-         (shell-setup "shell=$(getent passwd \"$(id -un)\" | cut -d: -f7 2>/dev/null); [ -n \"$shell\" ] && SHELL=$shell; export SHELL")
-         (attach-command
-          (if command
-              (term-sessions--attach-command name command)
-            ;; zmx otherwise falls back to /bin/sh in some non-interactive ssh
-            ;; environments.  Let the remote shell expand $SHELL after setting
-            ;; it from passwd, so new sessions use the user's login shell.
-            (format "%s attach %s \"$SHELL\" -l"
-                    (shell-quote-argument term-sessions-zmx-program)
-                    (shell-quote-argument name))))
+         ;; zmx otherwise falls back to /bin/sh in some non-interactive ssh
+         ;; environments.  Let the remote shell expand $SHELL after setting
+         ;; it from passwd, so new sessions use the user's login shell.
+         (attach-command (term-sessions--attach-command name command t))
          (remote-command
           (concat "cd " (shell-quote-argument remote-cwd)
-                  " && " shell-setup
                   " && " attach-command)))
     (term-sessions--command-string term-sessions-ssh-program
                                    (append (list "-t" "-t")

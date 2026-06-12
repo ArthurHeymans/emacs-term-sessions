@@ -32,8 +32,8 @@ Emacs frontend              yes
 external session owner      yes, zmx
 survives Emacs exit         yes, via zmx
 TRAMP control calls         partially, via process-file/start-file-process
-TRAMP interactive attach    prototype only, via local ssh wrapper
-/rpc: support               not implemented yet
+TRAMP interactive attach    implemented for term/eat/ghostel/vterm/shell, with SSH fallback
+/rpc: support               implemented through TRAMP/tramp-rpc process APIs
 ```
 
 So the architecture is correct, but proper TRAMP/tramp-rpc integration remains the main missing piece.
@@ -399,12 +399,12 @@ If the native `pi-coding-agent` Emacs JSON-RPC UI must reconnect to the same rem
 
 ## Immediate next implementation step
 
-Start with:
+The original immediate TRAMP integration step is complete:
 
 1. `term-sessions-location` parsing.
 2. Attach transport abstraction.
 3. Current SSH wrapper retained as fallback.
 4. Tests for `/ssh:user@host#2222:` and `/rpc:user@host:`.
-5. Then implement `tramp-process` attach using `start-file-process` with PTY.
+5. TRAMP process attach for `term`, `eat`, `ghostel`, `vterm`, and `shell`.
 
-This keeps the working zmx prototype while creating the foundation for proper TRAMP integration.
+Next hardening work: improve diagnostics for frontend-specific TRAMP failures, add more real integration tests, and decide whether simple SSH-like paths should keep automatic SSH-wrapper fallback or require users to opt into it explicitly.

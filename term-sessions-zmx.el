@@ -183,12 +183,25 @@ When REQUIRE-EXISTING is non-nil, complete against active sessions."
           (when (and command (not (string-empty-p command)))
             (split-string-and-unquote command))))
 
-(defun term-sessions--attach-command (name &optional command)
+(defun term-sessions--login-shell-setup-command ()
+  "Return shell fragment that initializes SHELL from the passwd database."
+  "shell=$(getent passwd \"$(id -un)\" | cut -d: -f7 2>/dev/null); [ -n \"$shell\" ] && SHELL=$shell; export SHELL")
+
+(defun term-sessions--attach-command (name &optional command prefer-login-shell)
   "Return a shell command that attaches to zmx session NAME.
-When COMMAND is non-nil, it is passed to zmx for session creation if needed."
+When COMMAND is non-nil, it is passed to zmx for session creation if needed.
+When PREFER-LOGIN-SHELL is non-nil and COMMAND is nil, initialize SHELL from
+passwd and ask zmx to create missing sessions with that login shell."
   (term-sessions-zmx--with-environment
-    (term-sessions--command-string term-sessions-zmx-program
-                                   (term-sessions--attach-args name command))))
+    (if (and prefer-login-shell (not (term-sessions--string-or-nil command)))
+        (concat (term-sessions--login-shell-setup-command)
+                " && "
+                (shell-quote-argument term-sessions-zmx-program)
+                " attach "
+                (shell-quote-argument name)
+                " \"$SHELL\" -l")
+      (term-sessions--command-string term-sessions-zmx-program
+                                     (term-sessions--attach-args name command)))))
 
 ;;;###autoload
 (defun term-sessions-kill (name &optional force)

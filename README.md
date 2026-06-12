@@ -23,7 +23,7 @@ Add the repo to `load-path`, then:
 
 `zmx` must be available at runtime wherever the session commands run. The dev shell provides it locally; for TRAMP paths, install/configure `zmx` on the remote host or set `term-sessions-zmx-program` connection-locally.
 
-Current remote status: noninteractive/control calls (`list`, `kill`, `history`, `send`, `run`, `wait`, and `tail`) use Emacs process APIs that can run through TRAMP `process-file`/`start-file-process`. Interactive attach is controlled by `term-sessions-attach-transport`: local directories attach locally, the built-in `term` frontend can attach through TRAMP process APIs (including `/rpc:` when tramp-rpc provides that method), and command-string frontends fall back to a local `ssh host 'cd DIR && zmx attach NAME'` wrapper for simple `/ssh:` paths.
+Current remote status: noninteractive/control calls (`list`, `kill`, `history`, `send`, `run`, `wait`, and `tail`) use Emacs process APIs that can run through TRAMP `process-file`/`start-file-process`. Interactive attach is controlled by `term-sessions-attach-transport`: local directories attach locally, and `term`, `eat`, `ghostel`, `vterm`, and `shell` now prefer TRAMP process attaches for remote directories, including `/rpc:` when tramp-rpc provides that method and TRAMP multi-hop paths. The local SSH wrapper remains as an explicit fallback and is also used automatically when an `auto` TRAMP attach fails for a simple SSH-like path.
 
 `term-sessions-start` creates-or-attaches. `term-sessions-open` only opens existing sessions.
 
@@ -63,7 +63,7 @@ Attach transport can be customized:
 
 ## Frontends
 
-`vterm`, `eat`, `term`, and `shell` are implemented for local interactive attach and SSH-backed remote attach. `ghostel` is pluggable through `term-sessions-ghostel-open-function` until its Emacs API settles.
+`vterm`, `eat`, `ghostel`, `term`, and `shell` are implemented for local interactive attach. For remote directories they prefer TRAMP/tramp-rpc process attaches; `ghostel` uses its native TRAMP-aware `ghostel-exec` path and keeps Ghostel title/directory tracking while prefixing buffer names with the term session name. `term-sessions-ghostel-open-function` remains customizable for users who want a different Ghostel opener.
 
 ## Internal modules
 
