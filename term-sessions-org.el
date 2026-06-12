@@ -65,18 +65,38 @@
   (let ((term-sessions-backend backend))
     (term-sessions--spec-org-link (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
 
+(defun term-sessions--org-link-description (name &optional spec)
+  "Return default Org link description for session NAME and optional SPEC.
+Keep the session name first so inserted links remain recognizable even when
+additional location context is included."
+  (if-let* ((spec spec)
+            (cwd (term-sessions-spec-cwd spec))
+            (location (term-sessions-spec-location spec)))
+      (let ((dir (term-sessions--short-directory-name cwd)))
+        (if (term-sessions-location-remote-p location)
+            (format "%s @ %s:%s"
+                    name (term-sessions--location-remote-label location) dir)
+          (format "%s @ %s" name dir)))
+    name))
+
 ;;;###autoload
 (defun term-sessions-store-org-link (&optional name)
   "Store an Org link to persistent session NAME.
 When called from a session buffer, default to that session."
   (interactive)
-  (let* ((name (or name term-sessions-current-name
+  ;; Org store functions can be called with Org's prefix/context argument.
+  ;; Treat only string NAME values as an explicit session name; otherwise use
+  ;; the current term-sessions buffer metadata or prompt.  Without this,
+  ;; `C-u 1 C-c l' can accidentally store a session named "1".
+  (let* ((name (or (and (stringp name) name)
+                   term-sessions-current-name
                    (term-sessions--read-name "Store link for session: " t)))
          (backend (or term-sessions-current-backend term-sessions-backend))
-         (link (if term-sessions-current-spec
-                   (term-sessions--spec-org-link term-sessions-current-spec)
-                 (term-sessions--org-link backend name)))
-         (description (format "terminal session:%s" name)))
+         (spec (or term-sessions-current-spec
+                   (let ((term-sessions-backend backend))
+                     (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
+         (link (term-sessions--spec-org-link spec))
+         (description (term-sessions--org-link-description name spec)))
     (if (fboundp 'org-link-store-props)
         (org-link-store-props :type "term-session"
                               :link link

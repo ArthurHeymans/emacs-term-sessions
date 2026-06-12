@@ -90,6 +90,28 @@
                      :directory "/ssh:user@example:~/" :cwd "/ssh:user@example:~/"
                      :name "dev:box")))))
 
+(ert-deftest term-sessions-test-store-org-link-description-starts-with-session-name ()
+  (let ((default-directory "/ssh:user@example:/tmp/project")
+        (term-sessions-current-time-function (lambda () 0))
+        stored)
+    (cl-letf (((symbol-function 'org-link-store-props)
+               (lambda (&rest plist) (setq stored plist))))
+      (term-sessions-store-org-link "dev")
+      (should (string-prefix-p "dev" (plist-get stored :description)))
+      (should (string-match-p "ssh:user@example" (plist-get stored :description)))
+      (should (string-match-p "/tmp/project" (plist-get stored :description))))))
+
+(ert-deftest term-sessions-test-store-org-link-ignores-numeric-org-arg ()
+  (let ((default-directory "/home/arthur/")
+        (term-sessions-current-name "hello")
+        (term-sessions-current-time-function (lambda () 0))
+        stored)
+    (cl-letf (((symbol-function 'org-link-store-props)
+               (lambda (&rest plist) (setq stored plist))))
+      (term-sessions-store-org-link 1)
+      (should (string-prefix-p "hello" (plist-get stored :description)))
+      (should (string-match-p "name=hello" (plist-get stored :link))))))
+
 (ert-deftest term-sessions-test-session-spec-captures-current-location ()
   (let ((default-directory "/ssh:t480-arthur:/tmp/project")
         (term-sessions-current-time-function (lambda () 0)))
