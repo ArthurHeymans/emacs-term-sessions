@@ -419,21 +419,5 @@ with two prefix arguments use HTML output."
         (term-sessions--mark-buffer name)))
     (pop-to-buffer buffer)))
 
-;;;###autoload
-(defun term-sessions-tail (name)
-  "Follow zmx output for session NAME in a comint buffer."
-  (interactive (list (term-sessions--read-name "Tail session: " t)))
-  (term-sessions--ensure-zmx)
-  (let* ((buffer-name (term-sessions--buffer-name name "tail"))
-         (buffer (get-buffer-create buffer-name)))
-    (when (get-buffer-process buffer)
-      (delete-process (get-buffer-process buffer)))
-    (term-sessions-zmx--with-environment
-      (start-file-process buffer-name buffer term-sessions-zmx-program "tail" name))
-    (with-current-buffer buffer
-      (term-sessions--mark-buffer name)
-      (view-mode 1))
-    (pop-to-buffer buffer)))
-
 (provide 'term-sessions-zmx)
 ;;; term-sessions-zmx.el ends here

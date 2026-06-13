@@ -17,7 +17,6 @@
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "o") #'term-sessions-action-open)
     (define-key map (kbd "k") #'term-sessions-action-kill)
-    (define-key map (kbd "t") #'term-sessions-action-tail)
     (define-key map (kbd "h") #'term-sessions-action-history)
     (define-key map (kbd "w") #'term-sessions-action-copy-name)
     (define-key map (kbd "a") #'term-sessions-action-copy-attach-command)
@@ -58,15 +57,6 @@
    candidate
    (lambda (entry)
      (term-sessions-kill (term-sessions--entry-name entry)))))
-
-;;;###autoload
-(defun term-sessions-action-tail (candidate)
-  "Tail term session CANDIDATE."
-  (interactive (list (term-sessions--read-name "Tail session: " t)))
-  (term-sessions-action--call
-   candidate
-   (lambda (entry)
-     (term-sessions-tail (term-sessions--entry-name entry)))))
 
 ;;;###autoload
 (defun term-sessions-action-history (candidate)

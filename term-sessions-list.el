@@ -60,7 +60,6 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
         (define-key map (kbd "R") #'term-sessions-list-clear-failed-remotes)
         (define-key map (kbd "k") #'term-sessions-list-kill)
         (define-key map (kbd "h") #'term-sessions-list-history)
-        (define-key map (kbd "l") #'term-sessions-list-tail)
         (define-key map (kbd "s") #'term-sessions-list-send-command)
         (define-key map (kbd "y") #'term-sessions-list-store-org-link)
         (define-key map (kbd "m") #'term-sessions-list-mark)
@@ -547,13 +546,6 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   (term-sessions-list--map-selected
    (lambda (entry)
      (term-sessions-history (term-sessions--entry-name entry)))))
-
-(defun term-sessions-list-tail ()
-  "Tail selected sessions."
-  (interactive)
-  (term-sessions-list--map-selected
-   (lambda (entry)
-     (term-sessions-tail (term-sessions--entry-name entry)))))
 
 (defun term-sessions-list-send-command (command)
   "Send COMMAND to selected sessions."

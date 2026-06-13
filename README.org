@@ -24,7 +24,7 @@ For example: start a =dev= session on a remote build box from your laptop, close
 | Primary use case | Detached commands/jobs from Emacs | Persistent interactive terminal sessions |
 | Backend | =dtach= plus Emacs-managed session metadata/logs | External backend owns sessions; currently =zmx= |
 | Source of truth | Emacs Lisp session DB plus files/logs | Backend query/control API |
-| Output model | Captured logs; great for view/copy/diff/compile | Backend history/tail plus terminal attach |
+| Output model | Captured logs; great for view/copy/diff/compile | Backend history plus terminal attach |
 | Terminal attach | =dtach= attach, often with log context | Frontend adapters opening backend attaches |
 | Finite jobs | Mature: compile, rerun, notifications, exit status | Basic =run=/=wait= commands; less mature |
 | Interactive shells | Supported, but command/job-centered | The central model |
@@ -45,7 +45,7 @@ This is a greenfield package.  The =zmx= backend is implemented first.  The API 
 Implemented pieces include:
 
 - start/open/list/kill commands
-- history, tail, send, run, and wait commands
+- history, send, run, and wait commands
 - local frontend adapters for =vterm=, =eat=, =ghostel=, =term=, and =shell=
 - TRAMP-aware noninteractive/control operations
 - Org links for storing and reopening session specs
@@ -88,7 +88,6 @@ Then run:
 Additional commands:
 
 - =M-x term-sessions-history=
-- =M-x term-sessions-tail=
 - =M-x term-sessions-send=
 - =M-x term-sessions-send-command=
 - =M-x term-sessions-run=
@@ -103,7 +102,7 @@ Additional commands:
 
 For TRAMP paths, install/configure =zmx= on the remote host or set =term-sessions-zmx-program= connection-locally.
 
-Noninteractive/control calls (=list=, =kill=, =history=, =send=, =run=, =wait=, and =tail=) use Emacs process APIs that can run through TRAMP =process-file=/=start-file-process=.
+Noninteractive/control calls (=list=, =kill=, =history=, =send=, =run=, and =wait=) use Emacs process APIs that can run through TRAMP =process-file=/=start-file-process=.
 
 Interactive attach is controlled by =term-sessions-attach-transport=:
 
