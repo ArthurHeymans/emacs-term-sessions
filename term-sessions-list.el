@@ -369,30 +369,22 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
                           (term-sessions-list--record-remote-failure directory err)
                           (message "term-sessions: cannot list %s: %s" directory err)
                           nil))))
-      (let* ((name (plist-get session :name))
+      (let* ((entry (term-sessions--zmx-session-entry session directory))
+             (name (plist-get entry :name))
              (where (term-sessions-list--location-label directory))
              (created (term-sessions-list--time-string (plist-get session :created)))
-             (updated-raw (plist-get session :updated-time))
+             (updated-raw (plist-get entry :updated-time))
              (updated (term-sessions-list--time-string updated-raw))
-             (clients (or (plist-get session :clients) ""))
-             (cwd (or (plist-get session :cwd)
-                      (plist-get session :start_dir)
-                      ""))
-             (cmd (or (plist-get session :current-cmd)
-                      (plist-get session :cmd)
-                      ""))
+             (clients (plist-get entry :clients))
+             (cwd (plist-get entry :cwd))
+             (cmd (plist-get entry :command))
              (project (term-sessions-list--project-label cwd))
-             (id (list :name name
-                       :directory directory
-                       :session session
-                       :where where
-                       :project project
-                       :created created
-                       :updated updated
-                       :updated-raw updated-raw
-                       :clients clients
-                       :cwd cwd
-                       :command cmd)))
+             (id (append entry
+                         (list :where where
+                               :project project
+                               :created created
+                               :updated updated
+                               :updated-raw updated-raw))))
         (push (list id (vector name where project created updated clients cwd cmd)) rows)))
     (nreverse rows)))
 

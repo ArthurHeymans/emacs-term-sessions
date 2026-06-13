@@ -229,8 +229,8 @@ Fields include at least :name, and may include :pid, :clients, :created,
   "Return non-nil when zmx session NAME is active."
   (member name (term-sessions--zmx-list-names)))
 
-(defun term-sessions--completion-entry-for-session (session &optional directory)
-  "Return a completion/action entry for zmx SESSION at DIRECTORY."
+(defun term-sessions--zmx-session-entry (session &optional directory)
+  "Return a normalized entry for zmx SESSION at DIRECTORY."
   (list :name (plist-get session :name)
         :directory (or directory default-directory)
         :session session
@@ -242,6 +242,10 @@ Fields include at least :name, and may include :pid, :clients, :created,
                      "")
         :clients (or (plist-get session :clients) "")
         :updated-time (plist-get session :updated-time)))
+
+(defun term-sessions--completion-entry-for-session (session &optional directory)
+  "Return a completion/action entry for zmx SESSION at DIRECTORY."
+  (term-sessions--zmx-session-entry session directory))
 
 (defun term-sessions--completion-annotate (candidate)
   "Return annotation string for session CANDIDATE."

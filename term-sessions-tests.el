@@ -58,6 +58,17 @@
     (should (term-sessions--active-p "dev"))
     (should-not (term-sessions--active-p "missing"))))
 
+(ert-deftest term-sessions-test-zmx-session-entry-normalizes-fields ()
+  (should (equal (term-sessions--zmx-session-entry
+                  '(:name "dev" :start_dir "/repo" :cwd "/repo/sub"
+                    :cmd "bash" :current-cmd "nvim" :updated-time 10)
+                  "/tmp/")
+                 '(:name "dev" :directory "/tmp/" :session
+                   (:name "dev" :start_dir "/repo" :cwd "/repo/sub"
+                    :cmd "bash" :current-cmd "nvim" :updated-time 10)
+                   :cwd "/repo/sub" :command "nvim" :clients ""
+                   :updated-time 10))))
+
 (ert-deftest term-sessions-test-org-link-roundtrip-special-name ()
   (let* ((term-sessions-preferred-frontend 'term)
          (term-sessions-current-time-function (lambda () 0))
