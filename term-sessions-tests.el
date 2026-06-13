@@ -392,6 +392,27 @@
       (term-sessions-open "new" "echo hi")
       (should (equal opened (list "new" "echo hi" term-sessions-preferred-frontend t))))))
 
+(ert-deftest term-sessions-test-open-with-frontend-reuses-existing-buffer ()
+  (let ((buffer (generate-new-buffer " *term-sessions-test-open*"))
+        ensured opened)
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (setq default-directory "/tmp/project/"
+                  term-sessions-current-name "dev"
+                  term-sessions-current-backend 'zmx))
+          (cl-letf (((symbol-function 'term-sessions--ensure-zmx)
+                     (lambda () (setq ensured t)))
+                    ((symbol-function 'term-sessions--open-command-frontend)
+                     (lambda (&rest args) (setq opened args))))
+            (should (eq (term-sessions-open-with-frontend "dev" nil 'term t)
+                        buffer))
+            (should (eq (current-buffer) buffer))
+            (should-not ensured)
+            (should-not opened)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest term-sessions-test-open-with-frontend-entry-binds-entry-directory ()
   (let ((entry (list :name "dev" :directory "/ssh:host:/repo/"))
         seen-directory opened)
@@ -594,22 +615,22 @@
                   '("/home/arthur/" "/ssh:example:/tmp/" "/ssh:example:/"))
                  '("/home/arthur/" "/ssh:example:/tmp/"))))
 
-(ert-deftest term-sessions-test-list-finds-existing-local-session-buffer ()
+(ert-deftest term-sessions-test-finds-existing-local-session-buffer ()
   (let ((term-sessions-backend 'zmx))
     (with-temp-buffer
       (setq default-directory "/tmp/"
             term-sessions-current-name "dev"
             term-sessions-current-backend 'zmx)
-      (should (eq (term-sessions-list--session-buffer-for-entry "dev" "/home/arthur/")
+      (should (eq (term-sessions--session-buffer "dev" "/home/arthur/" 'zmx)
                   (current-buffer))))))
 
-(ert-deftest term-sessions-test-list-finds-existing-remote-session-buffer-by-prefix ()
+(ert-deftest term-sessions-test-finds-existing-remote-session-buffer-by-prefix ()
   (let ((term-sessions-backend 'zmx))
     (with-temp-buffer
       (setq default-directory "/rpc:example:/tmp/project/"
             term-sessions-current-name "dev"
             term-sessions-current-backend 'zmx)
-      (should (eq (term-sessions-list--session-buffer-for-entry "dev" "/rpc:example:/")
+      (should (eq (term-sessions--session-buffer "dev" "/rpc:example:/" 'zmx)
                   (current-buffer))))))
 
 (ert-deftest term-sessions-test-fit-column-pads-and-truncates ()
@@ -761,6 +782,29 @@
     (should (term-sessions-consult--current-project-p same-host))
     (should-not (term-sessions-consult--current-project-p other-host))
     (should-not (term-sessions-consult--current-project-p local))))
+
+(ert-deftest term-sessions-test-consult-open-reuses-existing-buffer ()
+  (clrhash term-sessions-consult--entry-table)
+  (let* ((entry (list :name "dev" :directory "/tmp/project/" :where "local"))
+         (candidate (term-sessions-consult--display entry))
+         (buffer (generate-new-buffer " *term-sessions-test-consult-open*"))
+         ensured opened)
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (setq default-directory "/tmp/project/"
+                  term-sessions-current-name "dev"
+                  term-sessions-current-backend 'zmx))
+          (cl-letf (((symbol-function 'term-sessions--ensure-zmx)
+                     (lambda () (setq ensured t)))
+                    ((symbol-function 'term-sessions--open-command-frontend)
+                     (lambda (&rest args) (setq opened args))))
+            (term-sessions-consult--open candidate)
+            (should (eq (current-buffer) buffer))
+            (should-not ensured)
+            (should-not opened)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest term-sessions-test-consult-session-allows-new-name ()
   (let (options opened)

@@ -142,13 +142,7 @@ running command."
 
 (defun term-sessions-consult--open (candidate)
   "Open the session named by CANDIDATE."
-  (let* ((entry (term-sessions-consult--entry candidate))
-         (name (term-sessions--entry-name entry))
-         (directory (term-sessions--entry-directory entry)))
-    (if-let ((buffer (term-sessions--session-buffer name directory term-sessions-backend)))
-        (pop-to-buffer buffer)
-      (let ((default-directory directory))
-        (term-sessions-open name)))))
+  (term-sessions-open (term-sessions-consult--entry candidate)))
 
 (defun term-sessions-consult--open-new (name)
   "Create and open a new term session NAME in `default-directory'."

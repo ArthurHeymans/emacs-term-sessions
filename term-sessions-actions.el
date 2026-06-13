@@ -43,11 +43,7 @@
   (term-sessions-action--call
    candidate
    (lambda (entry)
-     (let* ((name (term-sessions--entry-name entry))
-            (directory (term-sessions--entry-directory entry)))
-       (if-let ((buffer (term-sessions--session-buffer name directory term-sessions-backend)))
-           (pop-to-buffer buffer)
-         (term-sessions-open name))))))
+     (term-sessions-open entry))))
 
 ;;;###autoload
 (defun term-sessions-action-kill (candidate)

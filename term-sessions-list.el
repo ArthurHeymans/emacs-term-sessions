@@ -484,18 +484,6 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   (or (tabulated-list-get-id)
       (user-error "No session on this line")))
 
-(defun term-sessions-list--name-at-point ()
-  "Return session name at point in `term-sessions-list-mode'."
-  (term-sessions--entry-name (term-sessions-list--entry-at-point)))
-
-(defun term-sessions-list--directory-at-point ()
-  "Return session directory at point in `term-sessions-list-mode'."
-  (term-sessions--entry-directory (term-sessions-list--entry-at-point)))
-
-(defun term-sessions-list--session-buffer-for-entry (name directory)
-  "Return an existing buffer for session NAME at DIRECTORY, or nil."
-  (term-sessions--session-buffer name directory term-sessions-backend))
-
 (defun term-sessions-list--selected-entries ()
   "Return marked entries, or the entry at point when nothing is marked."
   (or term-sessions-list--marked-entries
@@ -518,13 +506,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
 (defun term-sessions-list-open ()
   "Open session at point, reusing an existing session buffer when present."
   (interactive)
-  (let* ((name (term-sessions-list--name-at-point))
-         (directory (term-sessions-list--directory-at-point))
-         (buffer (term-sessions-list--session-buffer-for-entry name directory)))
-    (if buffer
-        (pop-to-buffer buffer)
-      (let ((default-directory directory))
-        (term-sessions-open name)))))
+  (term-sessions-open (term-sessions-list--entry-at-point)))
 
 (defun term-sessions-list-kill ()
   "Kill selected sessions."
