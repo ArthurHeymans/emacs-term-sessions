@@ -457,22 +457,24 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   (tabulated-list-print t)
   (term-sessions-list--restore-marks))
 
-(defun term-sessions-list-refresh ()
-  "Refresh `term-sessions-list-mode' rows."
+(defun term-sessions-list--session-rows ()
+  "Return session rows across local and already-open TRAMP remotes."
   (let* ((session-directories (term-sessions-list--session-buffer-directories))
-         (directories (append (list (term-sessions-list--local-directory))
-                              session-directories
-                              (term-sessions-list--open-remote-directories))))
+         (directories (term-sessions-list--delete-duplicate-directories
+                       (append (list (term-sessions-list--local-directory))
+                               session-directories
+                               (term-sessions-list--open-remote-directories)))))
     ;; If the user has successfully opened a term-session on a remote, retry
     ;; that remote even if an earlier list refresh cached a TRAMP failure.
     (mapc #'term-sessions-list--clear-remote-failure session-directories)
-    (setq term-sessions-list--all-entries
-          (apply #'append
-                 (mapcar #'term-sessions-list--query-directory
-                         (term-sessions-list--delete-duplicate-directories
-                          directories))))
-    (setq tabulated-list-entries
-          (term-sessions-list--filtered-entries term-sessions-list--all-entries))))
+    (apply #'append
+           (mapcar #'term-sessions-list--query-directory directories))))
+
+(defun term-sessions-list-refresh ()
+  "Refresh `term-sessions-list-mode' rows."
+  (setq term-sessions-list--all-entries (term-sessions-list--session-rows))
+  (setq tabulated-list-entries
+        (term-sessions-list--filtered-entries term-sessions-list--all-entries)))
 
 ;;;###autoload
 (defun term-sessions-list ()

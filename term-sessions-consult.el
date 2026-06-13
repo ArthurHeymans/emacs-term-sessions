@@ -84,15 +84,7 @@ counter suffix so actions and annotations still resolve to the intended entry."
 (defun term-sessions-consult--entries ()
   "Return session entries across local and already-open TRAMP remotes."
   (clrhash term-sessions-consult--entry-table)
-  (let* ((session-directories (term-sessions-list--session-buffer-directories))
-         (directories (term-sessions-list--delete-duplicate-directories
-                       (append (list (term-sessions-list--local-directory))
-                               session-directories
-                               (term-sessions-list--open-remote-directories)))))
-    (mapc #'term-sessions-list--clear-remote-failure session-directories)
-    (mapcar #'car
-            (apply #'append
-                   (mapcar #'term-sessions-list--query-directory directories)))))
+  (mapcar #'car (term-sessions-list--session-rows)))
 
 (defun term-sessions-consult--items (&optional predicate)
   "Return Consult item strings filtered by PREDICATE."

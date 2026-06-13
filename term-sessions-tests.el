@@ -432,20 +432,17 @@
 (ert-deftest term-sessions-test-read-existing-session-entry-includes-open-remotes ()
   (clrhash term-sessions--completion-entry-table)
   (let (prompt collection required)
-    (cl-letf (((symbol-function 'term-sessions-list--local-directory)
-               (lambda () "/home/me/"))
-              ((symbol-function 'term-sessions-list--session-buffer-directories)
-               (lambda () nil))
-              ((symbol-function 'term-sessions-list--open-remote-directories)
-               (lambda () '("/ssh:host:/")))
-              ((symbol-function 'term-sessions-list--delete-duplicate-directories)
-               (lambda (directories) directories))
-              ((symbol-function 'term-sessions-list--query-directory)
-               (lambda (directory)
-                 (list (list (list :name (if (file-remote-p directory) "remote" "local")
-                                   :directory directory
-                                   :where (if (file-remote-p directory) "ssh:host" "local")
-                                   :cwd (if (file-remote-p directory) "/repo" "/home/me"))
+    (cl-letf (((symbol-function 'term-sessions-list--session-rows)
+               (lambda ()
+                 (list (list (list :name "local"
+                                   :directory "/home/me/"
+                                   :where "local"
+                                   :cwd "/home/me")
+                             [])
+                       (list (list :name "remote"
+                                   :directory "/ssh:host:/"
+                                   :where "ssh:host"
+                                   :cwd "/repo")
                              []))))
               ((symbol-function 'completing-read)
                (lambda (p c _predicate require-match &rest _args)
@@ -463,16 +460,8 @@
   (clrhash term-sessions--completion-entry-table)
   (let ((default-directory "/tmp/project/")
         required)
-    (cl-letf (((symbol-function 'term-sessions-list--local-directory)
-               (lambda () "/home/me/"))
-              ((symbol-function 'term-sessions-list--session-buffer-directories)
-               (lambda () nil))
-              ((symbol-function 'term-sessions-list--open-remote-directories)
-               (lambda () nil))
-              ((symbol-function 'term-sessions-list--delete-duplicate-directories)
-               (lambda (directories) directories))
-              ((symbol-function 'term-sessions-list--query-directory)
-               (lambda (_directory)
+    (cl-letf (((symbol-function 'term-sessions-list--session-rows)
+               (lambda ()
                  (list (list (list :name "dev"
                                    :directory "/home/me/"
                                    :where "local"
@@ -619,6 +608,27 @@
   (should (equal (term-sessions-list--delete-duplicate-directories
                   '("/home/arthur/" "/ssh:example:/tmp/" "/ssh:example:/"))
                  '("/home/arthur/" "/ssh:example:/tmp/"))))
+
+(ert-deftest term-sessions-test-list-session-rows-queries-known-directories ()
+  (let (queried cleared)
+    (cl-letf (((symbol-function 'term-sessions-list--local-directory)
+               (lambda () "/home/me/"))
+              ((symbol-function 'term-sessions-list--session-buffer-directories)
+               (lambda () '("/ssh:host:/repo/")))
+              ((symbol-function 'term-sessions-list--open-remote-directories)
+               (lambda () '("/ssh:host:/" "/ssh:other:/")))
+              ((symbol-function 'term-sessions-list--clear-remote-failure)
+               (lambda (directory) (push directory cleared)))
+              ((symbol-function 'term-sessions-list--query-directory)
+               (lambda (directory)
+                 (push directory queried)
+                 (list (list (list :name directory :directory directory) [])))))
+      (should (equal (mapcar (lambda (row) (plist-get (car row) :directory))
+                             (term-sessions-list--session-rows))
+                     '("/home/me/" "/ssh:host:/repo/" "/ssh:other:/")))
+      (should (equal (nreverse queried)
+                     '("/home/me/" "/ssh:host:/repo/" "/ssh:other:/")))
+      (should (equal cleared '("/ssh:host:/repo/"))))))
 
 (ert-deftest term-sessions-test-finds-existing-local-session-buffer ()
   (let ((term-sessions-backend 'zmx))

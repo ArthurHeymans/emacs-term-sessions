@@ -22,11 +22,7 @@
 (declare-function term-generate-db-directory "term" ())
 (declare-function term-sentinel "term" (proc msg))
 (declare-function vterm "ext:vterm" (&optional buffer-name))
-(declare-function term-sessions-list--delete-duplicate-directories "term-sessions-list" (directories))
-(declare-function term-sessions-list--local-directory "term-sessions-list" ())
-(declare-function term-sessions-list--open-remote-directories "term-sessions-list" ())
-(declare-function term-sessions-list--query-directory "term-sessions-list" (directory))
-(declare-function term-sessions-list--session-buffer-directories "term-sessions-list" ())
+(declare-function term-sessions-list--session-rows "term-sessions-list" ())
 (defvar term-height)
 (defvar term-protocol-version)
 (defvar term-ptyp)
@@ -237,20 +233,10 @@ COMMAND is the optional zmx creation command for missing sessions."
 When REQUIRE-EXISTING is non-nil, require the selected session to exist.
 Otherwise, a non-matching name creates a new entry in `default-directory', like
 `find-file' does for files."
-  (if (and (fboundp 'term-sessions-list--query-directory)
-           (fboundp 'term-sessions-list--local-directory)
-           (fboundp 'term-sessions-list--delete-duplicate-directories))
+  (if (fboundp 'term-sessions-list--session-rows)
       (progn
         (clrhash term-sessions--completion-entry-table)
-        (let* ((directories
-                (term-sessions-list--delete-duplicate-directories
-                 (append (list (term-sessions-list--local-directory))
-                         (term-sessions-list--session-buffer-directories)
-                         (term-sessions-list--open-remote-directories))))
-               (entries (mapcar #'car
-                                (apply #'append
-                                       (mapcar #'term-sessions-list--query-directory
-                                               directories))))
+        (let* ((entries (mapcar #'car (term-sessions-list--session-rows)))
                (candidates
                 (mapcar (lambda (entry)
                           (term-sessions--register-completion-entry
