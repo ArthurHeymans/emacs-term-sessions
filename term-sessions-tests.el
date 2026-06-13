@@ -743,6 +743,29 @@
       (setq term-sessions-list--marked-entries (list old))
       (should (term-sessions-list--entry-marked-p new)))))
 
+(ert-deftest term-sessions-test-list-mark-helpers-use-entry-key ()
+  (let ((old (list :name "dev" :directory "/tmp/" :clients "0"))
+        (new (list :name "dev" :directory "/tmp/" :clients "2"))
+        (other (list :name "logs" :directory "/tmp/")))
+    (with-temp-buffer
+      (term-sessions-list-mode)
+      (term-sessions-list--mark-entry old)
+      (term-sessions-list--mark-entry new)
+      (should (= (length term-sessions-list--marked-entries) 1))
+      (term-sessions-list--mark-entry other)
+      (term-sessions-list--unmark-entry new)
+      (should (equal term-sessions-list--marked-entries (list other))))))
+
+(ert-deftest term-sessions-test-list-unmark-entries-preserves-hidden-marks ()
+  (let ((visible (list :name "dev" :directory "/tmp/"))
+        (visible-new (list :name "dev" :directory "/tmp/" :updated "new"))
+        (hidden (list :name "logs" :directory "/tmp/")))
+    (with-temp-buffer
+      (term-sessions-list-mode)
+      (setq term-sessions-list--marked-entries (list visible hidden))
+      (term-sessions-list--unmark-entries (list visible-new))
+      (should (equal term-sessions-list--marked-entries (list hidden))))))
+
 (ert-deftest term-sessions-test-list-narrowing-prefix-does-not-shadow-next-line ()
   (should (eq (lookup-key term-sessions-list-mode-map (kbd "n")) 'next-line))
   (should (eq (lookup-key term-sessions-list-mode-map (kbd "/ n"))

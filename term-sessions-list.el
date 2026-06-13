@@ -407,12 +407,37 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   (list (term-sessions--entry-name entry)
         (term-sessions--directory-key (term-sessions--entry-directory entry))))
 
+(defun term-sessions-list--same-entry-p (a b)
+  "Return non-nil when entries A and B identify the same session."
+  (equal (term-sessions-list--entry-key a)
+         (term-sessions-list--entry-key b)))
+
+(defun term-sessions-list--mark-entry (entry)
+  "Mark ENTRY unless an equivalent entry is already marked."
+  (cl-pushnew entry term-sessions-list--marked-entries
+              :test #'term-sessions-list--same-entry-p))
+
+(defun term-sessions-list--unmark-entry (entry)
+  "Unmark any entry equivalent to ENTRY."
+  (setq term-sessions-list--marked-entries
+        (seq-remove (lambda (marked)
+                      (term-sessions-list--same-entry-p entry marked))
+                    term-sessions-list--marked-entries)))
+
+(defun term-sessions-list--unmark-entries (entries)
+  "Unmark any entry equivalent to an element of ENTRIES."
+  (setq term-sessions-list--marked-entries
+        (seq-remove (lambda (marked)
+                      (seq-some (lambda (entry)
+                                  (term-sessions-list--same-entry-p entry marked))
+                                entries))
+                    term-sessions-list--marked-entries)))
+
 (defun term-sessions-list--entry-marked-p (entry)
   "Return non-nil when ENTRY is marked."
-  (let ((key (term-sessions-list--entry-key entry)))
-    (seq-find (lambda (marked)
-                (equal key (term-sessions-list--entry-key marked)))
-              term-sessions-list--marked-entries)))
+  (seq-find (lambda (marked)
+              (term-sessions-list--same-entry-p entry marked))
+            term-sessions-list--marked-entries))
 
 (defun term-sessions-list--restore-marks ()
   "Restore marks in the visible tabulated list."
@@ -550,8 +575,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   "Mark the session at point and move to the next line."
   (interactive)
   (let ((entry (term-sessions-list--entry-at-point)))
-    (unless (term-sessions-list--entry-marked-p entry)
-      (push entry term-sessions-list--marked-entries))
+    (term-sessions-list--mark-entry entry)
     (tabulated-list-put-tag "*")
     (forward-line 1)))
 
@@ -559,11 +583,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   "Unmark the session at point and move to the next line."
   (interactive)
   (let ((entry (term-sessions-list--entry-at-point)))
-    (let ((key (term-sessions-list--entry-key entry)))
-      (setq term-sessions-list--marked-entries
-            (seq-remove (lambda (marked)
-                          (equal key (term-sessions-list--entry-key marked)))
-                        term-sessions-list--marked-entries)))
+    (term-sessions-list--unmark-entry entry)
     (tabulated-list-put-tag " ")
     (forward-line 1)))
 
@@ -585,17 +605,9 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   (interactive)
   (let ((visible (mapcar #'car tabulated-list-entries)))
     (if (seq-every-p #'term-sessions-list--entry-marked-p visible)
-        (let ((visible-keys (mapcar #'term-sessions-list--entry-key visible)))
-          (setq term-sessions-list--marked-entries
-                (seq-remove (lambda (marked)
-                              (member (term-sessions-list--entry-key marked)
-                                      visible-keys))
-                            term-sessions-list--marked-entries)))
+        (term-sessions-list--unmark-entries visible)
       (dolist (entry visible)
-        (cl-pushnew entry term-sessions-list--marked-entries
-                    :test (lambda (a b)
-                            (equal (term-sessions-list--entry-key a)
-                                   (term-sessions-list--entry-key b))))))
+        (term-sessions-list--mark-entry entry)))
     (term-sessions-list--reprint)))
 
 (defun term-sessions-list-mark-regexp (regexp)
@@ -608,15 +620,8 @@ With prefix argument, unmark matching sessions instead."
     (when (or (string-match-p regexp (or (plist-get entry :name) ""))
               (string-match-p regexp (or (plist-get entry :command) "")))
       (if current-prefix-arg
-          (let ((key (term-sessions-list--entry-key entry)))
-            (setq term-sessions-list--marked-entries
-                  (seq-remove (lambda (marked)
-                                (equal key (term-sessions-list--entry-key marked)))
-                              term-sessions-list--marked-entries)))
-        (cl-pushnew entry term-sessions-list--marked-entries
-                    :test (lambda (a b)
-                            (equal (term-sessions-list--entry-key a)
-                                   (term-sessions-list--entry-key b)))))))
+          (term-sessions-list--unmark-entry entry)
+        (term-sessions-list--mark-entry entry))))
   (term-sessions-list--reprint))
 
 (defun term-sessions-list-narrow-sessions (label predicate)
