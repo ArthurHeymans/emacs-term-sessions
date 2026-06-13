@@ -897,9 +897,14 @@
       (term-sessions-consult-session)
       (should-not opened))))
 
-(ert-deftest term-sessions-test-consult-sources-have-names ()
-  (dolist (source term-sessions-consult-sources)
-    (should (plist-get (symbol-value source) :name))))
+(ert-deftest term-sessions-test-consult-sources-have-common-properties ()
+  (dolist (source-symbol term-sessions-consult-sources)
+    (let ((source (symbol-value source-symbol)))
+      (should (plist-get source :name))
+      (should (eq (plist-get source :category) 'term-session))
+      (should (eq (plist-get source :annotate) 'term-sessions-consult--annotate))
+      (should (eq (plist-get source :action) 'term-sessions-consult--open))
+      (should (functionp (plist-get source :items))))))
 
 (ert-deftest term-sessions-test-action-copy-name-decodes-registered-candidate ()
   (let ((candidate "dev @ local /tmp/project"))

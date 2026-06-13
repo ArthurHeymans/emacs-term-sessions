@@ -175,74 +175,65 @@ running command."
   "Return non-nil when ENTRY has clients."
   (> (term-sessions-list--clients-number (plist-get entry :clients)) 0))
 
+(defun term-sessions-consult--make-source (name predicate &rest properties)
+  "Return a Consult source named NAME filtered by PREDICATE.
+PROPERTIES are source-specific plist entries, such as `:narrow' and `:hidden'."
+  (append
+   (list :name name)
+   properties
+   (list :category 'term-session
+         :annotate 'term-sessions-consult--annotate
+         :action 'term-sessions-consult--open
+         :items (lambda ()
+                  (if predicate
+                      (term-sessions-consult--items predicate)
+                    (term-sessions-consult--items))))))
+
 (defconst term-sessions-consult--source-session
-  `(:name "All term sessions"
-    :category term-session
-    :annotate term-sessions-consult--annotate
-    :action term-sessions-consult--open
-    :items ,(lambda () (term-sessions-consult--items)))
+  (term-sessions-consult--make-source "All term sessions" nil)
   "All term sessions as a Consult source.")
 
 (defconst term-sessions-consult--source-local-session
-  `(:name "Local term sessions"
-    :narrow (?l . "Local")
-    :hidden t
-    :category term-session
-    :annotate term-sessions-consult--annotate
-    :action term-sessions-consult--open
-    :items ,(lambda () (term-sessions-consult--items #'term-sessions-consult--local-p)))
+  (term-sessions-consult--make-source
+   "Local term sessions" #'term-sessions-consult--local-p
+   :narrow '(?l . "Local")
+   :hidden t)
   "Local term sessions as a Consult source.")
 
 (defconst term-sessions-consult--source-remote-session
-  `(:name "Remote term sessions"
-    :narrow (?r . "Remote")
-    :hidden t
-    :category term-session
-    :annotate term-sessions-consult--annotate
-    :action term-sessions-consult--open
-    :items ,(lambda () (term-sessions-consult--items #'term-sessions-consult--remote-p)))
+  (term-sessions-consult--make-source
+   "Remote term sessions" #'term-sessions-consult--remote-p
+   :narrow '(?r . "Remote")
+   :hidden t)
   "Remote term sessions as a Consult source.")
 
 (defconst term-sessions-consult--source-current-host-session
-  `(:name "Current host term sessions"
-    :narrow (?h . "Current host")
-    :hidden t
-    :category term-session
-    :annotate term-sessions-consult--annotate
-    :action term-sessions-consult--open
-    :items ,(lambda () (term-sessions-consult--items #'term-sessions-consult--current-host-p)))
+  (term-sessions-consult--make-source
+   "Current host term sessions" #'term-sessions-consult--current-host-p
+   :narrow '(?h . "Current host")
+   :hidden t)
   "Current backend host term sessions as a Consult source.")
 
 (defconst term-sessions-consult--source-current-project-session
-  `(:name "Current project/cwd term sessions"
-    :narrow (?p . "Project/cwd")
-    :hidden t
-    :category term-session
-    :annotate term-sessions-consult--annotate
-    :action term-sessions-consult--open
-    :items ,(lambda () (term-sessions-consult--items #'term-sessions-consult--current-project-p)))
+  (term-sessions-consult--make-source
+   "Current project/cwd term sessions" #'term-sessions-consult--current-project-p
+   :narrow '(?p . "Project/cwd")
+   :hidden t)
   "Current project or cwd term sessions as a Consult source.")
 
 (defconst term-sessions-consult--source-attached-session
-  `(:name "Term sessions with clients"
-    :narrow (?a . "With clients")
-    :hidden t
-    :category term-session
-    :annotate term-sessions-consult--annotate
-    :action term-sessions-consult--open
-    :items ,(lambda () (term-sessions-consult--items #'term-sessions-consult--attached-p)))
+  (term-sessions-consult--make-source
+   "Term sessions with clients" #'term-sessions-consult--attached-p
+   :narrow '(?a . "With clients")
+   :hidden t)
   "Term sessions with attached clients as a Consult source.")
 
 (defconst term-sessions-consult--source-detached-session
-  `(:name "Term sessions without clients"
-    :narrow (?d . "No clients")
-    :hidden t
-    :category term-session
-    :annotate term-sessions-consult--annotate
-    :action term-sessions-consult--open
-    :items ,(lambda ()
-              (term-sessions-consult--items
-               (lambda (entry) (not (term-sessions-consult--attached-p entry))))))
+  (term-sessions-consult--make-source
+   "Term sessions without clients"
+   (lambda (entry) (not (term-sessions-consult--attached-p entry)))
+   :narrow '(?d . "No clients")
+   :hidden t)
   "Term sessions without attached clients as a Consult source.")
 
 ;;;###autoload
