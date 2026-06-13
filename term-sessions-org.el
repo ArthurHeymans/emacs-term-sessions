@@ -292,6 +292,16 @@ Return non-nil when BUFFER had a live process and the text was sent."
        process (term-sessions--org-babel-input body)))
     t))
 
+(defun term-sessions--org-babel-send-via-zmx-or-error (name body)
+  "Send BODY to zmx session NAME with `zmx send', or signal if disabled.
+Return `zmx' when sent."
+  (if term-sessions-org-babel-use-zmx-send-when-no-buffer
+      (progn
+        (term-sessions--zmx-with-stdin (term-sessions--org-babel-input body)
+                                       "send" name)
+        'zmx)
+    (user-error "No live Emacs terminal buffer for term session `%s'" name)))
+
 (defun term-sessions--org-babel-send-now (name body)
   "Send BODY to active zmx session NAME now.
 Prefer an already-open Emacs terminal buffer.  This avoids creating a
@@ -300,18 +310,8 @@ the visible terminal.  Return `buffer' or `zmx' to describe the send path."
   (if-let ((buffer (term-sessions--org-babel-live-buffer name)))
       (if (term-sessions--org-babel-send-to-buffer buffer body)
           'buffer
-        (if term-sessions-org-babel-use-zmx-send-when-no-buffer
-            (progn
-              (term-sessions--zmx-with-stdin (term-sessions--org-babel-input body)
-                                             "send" name)
-              'zmx)
-          (user-error "No live Emacs terminal buffer for term session `%s'" name)))
-    (if term-sessions-org-babel-use-zmx-send-when-no-buffer
-        (progn
-          (term-sessions--zmx-with-stdin (term-sessions--org-babel-input body)
-                                         "send" name)
-          'zmx)
-      (user-error "No live Emacs terminal buffer for term session `%s'" name))))
+        (term-sessions--org-babel-send-via-zmx-or-error name body))
+    (term-sessions--org-babel-send-via-zmx-or-error name body)))
 
 (defun term-sessions--org-babel-send-later (name body)
   "Send BODY to zmx session NAME after creation delay."
