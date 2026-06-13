@@ -136,23 +136,6 @@ This is intentionally pluggable because ghostel APIs are still evolving."
         (eat-semi-char-mode)
         (term-sessions--mark-buffer name spec)))))
 
-(defun term-sessions--open-eat-process (name program args _buffer-name &optional spec)
-  "Open PROGRAM with ARGS in eat for session NAME.
-This uses eat's `make-process :file-handler t' path, so remote
-`default-directory' values are handled by TRAMP or tramp-rpc."
-  (unless (require 'eat nil t)
-    (user-error "eat is not available"))
-  (let* ((directory default-directory)
-         (base-name (term-sessions--term-buffer-base-name name))
-         (target-buffer (get-buffer-create (format "*%s*" base-name))))
-    (with-current-buffer target-buffer
-      (setq default-directory directory))
-    (let ((buffer (apply #'eat-make base-name program nil args)))
-      (pop-to-buffer buffer)
-      (with-current-buffer buffer
-        (eat-semi-char-mode)
-        (term-sessions--mark-buffer name spec)))))
-
 (defun term-sessions--open-term (name command _buffer-name &optional spec)
   "Open COMMAND in built-in term buffer for session NAME."
   (let ((buffer (apply #'make-term (term-sessions--term-buffer-base-name name)
