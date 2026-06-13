@@ -186,7 +186,7 @@ when completion UIs reserve little room for annotations."
                         (ignore-errors
                           (when-let* ((project (and (require 'project nil t)
                                                     (project-current nil default-directory)))
-                                      (project-root (car (project-roots project))))
+                                      (project-root (project-root project)))
                             project-root)))
                    directory)))
     (and (term-sessions-consult--current-host-p entry)

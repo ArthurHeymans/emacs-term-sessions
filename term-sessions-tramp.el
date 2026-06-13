@@ -12,7 +12,7 @@
 (require 'term-sessions-core)
 (require 'term-sessions-zmx)
 
-(declare-function project-roots "project" (project))
+(declare-function project-root "project" (project))
 
 (defcustom term-sessions-ssh-program "ssh"
   "Program used for SSH-backed remote interactive attaches."
@@ -243,7 +243,7 @@ Local sessions are supported directly.  Remote sessions use the configured
     (unless (file-remote-p directory)
       (when (require 'project nil t)
         (when-let* ((project (project-current nil directory))
-                    (root (car (project-roots project))))
+                    (root (project-root project)))
           (file-name-nondirectory (directory-file-name root)))))))
 
 (defun term-sessions-spec-current (name &optional command frontend tags recreate-policy)
