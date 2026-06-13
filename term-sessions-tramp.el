@@ -224,7 +224,7 @@ Return one of `local', `tramp-process', or `ssh-wrapper'."
   "Return shell command for an interactive attach to NAME.
 Local sessions run zmx directly.  SSH TRAMP sessions are opened by running a
 local ssh command that executes zmx on the remote host."
-  (if-let ((info (term-sessions--remote-info)))
+  (if (file-remote-p default-directory)
       (term-sessions--ssh-attach-command (term-sessions--ssh-remote-info)
                                          name command)
     (term-sessions--attach-command name command)))

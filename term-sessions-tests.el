@@ -556,6 +556,11 @@
     (should-error (term-sessions--ensure-interactive-attach-supported nil 'shell 'ssh-wrapper)
                   :type 'user-error)))
 
+(ert-deftest term-sessions-test-interactive-attach-refuses-non-ssh-method ()
+  (let ((default-directory "/sudo:example:/tmp"))
+    (should-error (term-sessions--interactive-attach-command "dev")
+                  :type 'user-error)))
+
 (ert-deftest term-sessions-test-remote-ssh-attach-command ()
   (let ((default-directory "/ssh:user@example:/tmp/project")
         (term-sessions-zmx-program "zmx")
