@@ -21,10 +21,23 @@ TRAMP connections Emacs already knows about."
   :group 'term-sessions
   :type 'boolean)
 
+(defcustom term-sessions-list-failed-remote-retry-delay 300
+  "Seconds before `term-sessions-list' retries a failed remote query.
+When nil, failed remotes are retried on every refresh.  When 0, a failed remote
+is skipped until `term-sessions-list-clear-failed-remotes' is called."
+  :group 'term-sessions
+  :type '(choice (const :tag "Retry every refresh" nil)
+                 (const :tag "Skip until cleared" 0)
+                 (integer :tag "Retry delay in seconds")))
+
+(defvar term-sessions-list--failed-remotes (make-hash-table :test #'equal)
+  "Remote directories that recently failed during `term-sessions-list' refresh.")
+
 (defvar term-sessions-list-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'term-sessions-list-open)
     (define-key map (kbd "g") #'revert-buffer)
+    (define-key map (kbd "R") #'term-sessions-list-clear-failed-remotes)
     (define-key map (kbd "k") #'term-sessions-list-kill)
     (define-key map (kbd "h") #'term-sessions-list-history)
     (define-key map (kbd "t") #'term-sessions-list-tail)
@@ -118,15 +131,84 @@ session server and should not be listed twice."
                best-by-remote)
       (nreverse directories))))
 
+(defun term-sessions-list--failed-remote-p (directory)
+  "Return non-nil when remote DIRECTORY should be skipped this refresh."
+  (when-let* ((remote (file-remote-p directory))
+              (entry (gethash remote term-sessions-list--failed-remotes)))
+    (let ((retry-delay term-sessions-list-failed-remote-retry-delay))
+      (cond
+       ((null retry-delay)
+        (remhash remote term-sessions-list--failed-remotes)
+        nil)
+       ((zerop retry-delay)
+        t)
+       ((< (float-time (time-subtract (current-time) (car entry))) retry-delay)
+        t)
+       (t
+        (remhash remote term-sessions-list--failed-remotes)
+        nil)))))
+
+(defun term-sessions-list--record-remote-failure (directory error)
+  "Remember that remote DIRECTORY failed with ERROR."
+  (when-let ((remote (file-remote-p directory)))
+    (puthash remote (cons (current-time) error) term-sessions-list--failed-remotes)))
+
+(defun term-sessions-list--clear-remote-failure (directory)
+  "Forget any cached failure for remote DIRECTORY."
+  (when-let ((remote (file-remote-p directory)))
+    (remhash remote term-sessions-list--failed-remotes)))
+
+(defun term-sessions-list--session-buffer-directories ()
+  "Return remote directories for currently open term-session buffers."
+  (delq nil
+        (mapcar (lambda (buffer)
+                  (with-current-buffer buffer
+                    (when (and term-sessions-current-name
+                               (file-remote-p default-directory))
+                      default-directory)))
+                (buffer-list))))
+
+(defun term-sessions-list--directory-key (directory)
+  "Return backend identity key for DIRECTORY.
+Remote zmx sessions are keyed by TRAMP prefix rather than localname, because
+`/rpc:host:/' and `/rpc:host:/some/cwd' query the same zmx server."
+  (or (file-remote-p directory)
+      (expand-file-name directory)))
+
+(defun term-sessions-list--delete-duplicate-directories (directories)
+  "Return DIRECTORIES with duplicate backend identities removed."
+  (let ((seen (make-hash-table :test #'equal))
+        result)
+    (dolist (directory directories)
+      (let ((key (term-sessions-list--directory-key directory)))
+        (unless (gethash key seen)
+          (puthash key t seen)
+          (push directory result))))
+    (nreverse result)))
+
+;;;###autoload
+(defun term-sessions-list-clear-failed-remotes ()
+  "Forget failed remote queries and refresh the session list.
+Use this after fixing a TRAMP connection, or when you want to force retrying
+remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
+  (interactive)
+  (clrhash term-sessions-list--failed-remotes)
+  (message "term-sessions: cleared failed remote cache")
+  (when (derived-mode-p 'term-sessions-list-mode)
+    (revert-buffer)))
+
 (defun term-sessions-list--query-directory (directory)
   "Return session rows for zmx at DIRECTORY."
   (let ((default-directory directory)
         rows)
-    (dolist (session (condition-case err
-                         (term-sessions--zmx-list-sessions)
-                       (error
-                        (message "term-sessions: cannot list %s: %s" directory err)
-                        nil)))
+    (dolist (session (if (term-sessions-list--failed-remote-p directory)
+                         nil
+                       (condition-case err
+                           (term-sessions--zmx-list-sessions)
+                         (error
+                          (term-sessions-list--record-remote-failure directory err)
+                          (message "term-sessions: cannot list %s: %s" directory err)
+                          nil))))
       (let* ((name (plist-get session :name))
              (id (list :name name :directory directory))
              (where (term-sessions-list--location-label directory))
@@ -144,12 +226,18 @@ session server and should not be listed twice."
 
 (defun term-sessions-list-refresh ()
   "Refresh `term-sessions-list-mode' rows."
-  (let ((directories (cons (term-sessions-list--local-directory)
-                           (term-sessions-list--open-remote-directories))))
+  (let* ((session-directories (term-sessions-list--session-buffer-directories))
+         (directories (append (list (term-sessions-list--local-directory))
+                              session-directories
+                              (term-sessions-list--open-remote-directories))))
+    ;; If the user has successfully opened a term-session on a remote, retry
+    ;; that remote even if an earlier list refresh cached a TRAMP failure.
+    (mapc #'term-sessions-list--clear-remote-failure session-directories)
     (setq tabulated-list-entries
           (apply #'append
                  (mapcar #'term-sessions-list--query-directory
-                         (delete-dups directories))))))
+                         (term-sessions-list--delete-duplicate-directories
+                          directories))))))
 
 ;;;###autoload
 (defun term-sessions-list ()

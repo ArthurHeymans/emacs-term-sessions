@@ -114,6 +114,8 @@ Interactive attach is controlled by =term-sessions-attach-transport=:
 
 Local directories attach locally.  For remote directories, =term=, =eat=, =ghostel=, =vterm=, and =shell= prefer TRAMP process attaches, including =/rpc:= when tramp-rpc provides that method and TRAMP multi-hop paths.  The local SSH wrapper remains as an explicit fallback and is also used automatically when an =auto= TRAMP attach fails for a simple SSH-like path.
 
+=term-sessions-list= can include already-open TRAMP remotes.  If a remote query fails, the list skips that remote for =term-sessions-list-failed-remote-retry-delay= seconds to avoid repeated TRAMP reconnect prompts on every refresh.  Press =R= in the list buffer, or run =M-x term-sessions-list-clear-failed-remotes=, to force retry after fixing the connection.
+
 * Org links
 
 Org links store a session spec with the original TRAMP directory/cwd, command, frontend, project, timestamp, and recreate policy.

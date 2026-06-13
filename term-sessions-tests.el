@@ -303,5 +303,42 @@
   (should (equal (term-sessions--term-buffer-base-name "dev")
                  "term-session:dev")))
 
+(ert-deftest term-sessions-test-list-skips-recently-failed-remotes ()
+  (let ((term-sessions-list--failed-remotes (make-hash-table :test #'equal))
+        (term-sessions-list-failed-remote-retry-delay 300)
+        (calls 0))
+    (cl-letf (((symbol-function 'term-sessions--zmx-list-sessions)
+               (lambda ()
+                 (cl-incf calls)
+                 (error "TRAMP failed"))))
+      (should-not (term-sessions-list--query-directory "/ssh:example:/"))
+      (should (= calls 1))
+      (should-not (term-sessions-list--query-directory "/ssh:example:/"))
+      (should (= calls 1)))))
+
+(ert-deftest term-sessions-test-list-retries-open-session-remotes ()
+  (let ((term-sessions-list--failed-remotes (make-hash-table :test #'equal))
+        (term-sessions-list-include-open-remotes nil)
+        queried)
+    (puthash "/ssh:example:" (cons (current-time) "old failure")
+             term-sessions-list--failed-remotes)
+    (with-temp-buffer
+      (setq default-directory "/ssh:example:/tmp/"
+            term-sessions-current-name "dev")
+      (cl-letf (((symbol-function 'term-sessions--zmx-list-sessions)
+                 (lambda ()
+                   (push default-directory queried)
+                   nil)))
+        (with-temp-buffer
+          (term-sessions-list-mode)
+          (term-sessions-list-refresh))))
+    (should (member "/ssh:example:/tmp/" queried))
+    (should-not (gethash "/ssh:example:" term-sessions-list--failed-remotes))))
+
+(ert-deftest term-sessions-test-list-deduplicates-remote-root-and-cwd ()
+  (should (equal (term-sessions-list--delete-duplicate-directories
+                  '("/home/arthur/" "/ssh:example:/tmp/" "/ssh:example:/"))
+                 '("/home/arthur/" "/ssh:example:/tmp/"))))
+
 (provide 'term-sessions-tests)
 ;;; term-sessions-tests.el ends here
