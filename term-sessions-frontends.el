@@ -305,6 +305,7 @@ Return the buffer when one was found, otherwise nil."
     (pop-to-buffer buffer)
     buffer))
 
+;;;###autoload
 (defun term-sessions-open-with-frontend (name &optional command frontend allow-create)
   "Open zmx session NAME with optional creation COMMAND in FRONTEND.
 NAME may also be a session entry plist.  When ALLOW-CREATE is nil, require the
