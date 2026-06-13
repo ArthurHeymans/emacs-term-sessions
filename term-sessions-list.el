@@ -134,13 +134,18 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
   (setq tabulated-list-format (term-sessions-list--format))
   (tabulated-list-init-header))
 
+(defun term-sessions-list--numeric-string-p (string)
+  "Return non-nil when STRING is a numeric timestamp string."
+  (string-match-p "\\`[[:space:]]*[+-]?[0-9]+\\(?:\\.[0-9]+\\)?[[:space:]]*\\'"
+                  string))
+
 (defun term-sessions-list--time-string (time-or-seconds)
   "Return compact display string for TIME-OR-SECONDS."
   (cond
    ((null time-or-seconds) "")
    ((stringp time-or-seconds)
-    (if-let ((seconds (ignore-errors (string-to-number time-or-seconds))))
-        (format-time-string "%Y-%m-%d %H:%M" seconds)
+    (if (term-sessions-list--numeric-string-p time-or-seconds)
+        (format-time-string "%Y-%m-%d %H:%M" (string-to-number time-or-seconds))
       time-or-seconds))
    (t (format-time-string "%Y-%m-%d %H:%M" time-or-seconds))))
 
@@ -174,7 +179,9 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
     (cond
      ((null time) nil)
      ((numberp time) (float time))
-     ((stringp time) (string-to-number time))
+     ((stringp time)
+      (when (term-sessions-list--numeric-string-p time)
+        (string-to-number time)))
      (t (float-time time)))))
 
 (defun term-sessions-list--parse-duration (duration)

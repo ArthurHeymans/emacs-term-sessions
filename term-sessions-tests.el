@@ -677,6 +677,15 @@
     (should (= (alist-get 'clients narrow) 7))
     (should (= (alist-get 'clients wide) 7))))
 
+(ert-deftest term-sessions-test-list-time-string-keeps-nonnumeric-strings ()
+  (should (equal (term-sessions-list--time-string "unknown") "unknown"))
+  (should (equal (term-sessions-list--time-string "123abc") "123abc"))
+  (should (string-match-p "1970-" (term-sessions-list--time-string "0"))))
+
+(ert-deftest term-sessions-test-list-updated-seconds-ignores-nonnumeric-strings ()
+  (should-not (term-sessions-list--updated-seconds '(:updated-raw "unknown")))
+  (should (= (term-sessions-list--updated-seconds '(:updated-raw "12.5")) 12.5)))
+
 (ert-deftest term-sessions-test-list-narrowing-filters-name-client-and-recency ()
   (let* ((now (float-time))
          (dev (list :name "dev" :directory "/tmp/" :where "local"
