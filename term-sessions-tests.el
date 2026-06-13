@@ -761,6 +761,14 @@
       (should (string-match-p "updated:2026-01-01"
                               (term-sessions-consult--annotate candidate))))))
 
+(ert-deftest term-sessions-test-consult-annotate-omits-empty-metadata ()
+  (clrhash term-sessions-consult--entry-table)
+  (let* ((entry (list :name "dev" :directory "/tmp/" :where "local"
+                      :clients "" :cwd "/tmp/project" :project ""
+                      :command "" :updated ""))
+         (candidate (term-sessions-consult--display entry)))
+    (should (equal (term-sessions-consult--annotate candidate) ""))))
+
 (ert-deftest term-sessions-test-consult-display-disambiguates-truncated-collisions ()
   (clrhash term-sessions--completion-entry-table)
   (clrhash term-sessions-consult--entry-table)

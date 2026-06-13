@@ -105,7 +105,8 @@ counter suffix so actions and annotations still resolve to the intended entry."
 The candidate itself carries the high-value scan columns: name, host, cwd, and
 running command."
   (when-let ((entry (term-sessions-consult--entry candidate)))
-    (let* ((clients (format "c:%s" (or (plist-get entry :clients) "")))
+    (let* ((client-value (term-sessions--string-or-nil (plist-get entry :clients)))
+           (clients (if client-value (format "c:%s" client-value) ""))
            (project-value (term-sessions--string-or-nil (plist-get entry :project)))
            (project (term-sessions--fit-column
                      (if project-value (format "[%s]" project-value) "")
