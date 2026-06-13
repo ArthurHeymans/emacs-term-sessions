@@ -102,6 +102,11 @@ Signals `user-error' on a non-zero exit status.  The current
     (term-sessions--ensure-zmx)
     (apply #'start-file-process name buffer term-sessions-zmx-program args)))
 
+(defun term-sessions--zmx-process-sentinel (process event)
+  "Report terminal PROCESS EVENT for asynchronous zmx processes."
+  (when (memq (process-status process) '(exit signal))
+    (message "%s %s" (process-name process) (string-trim event))))
+
 (defun term-sessions--zmx-list-names ()
   "Return a list of active zmx session names."
   (let ((output (condition-case nil
@@ -363,11 +368,7 @@ This starts `zmx run NAME -d COMMAND...' and returns immediately.  Use
                        (split-string-and-unquote command)))
          (proc (apply #'term-sessions--start-zmx-process
                       (format "term-session-run:%s" name) buffer args)))
-    (set-process-sentinel
-     proc
-     (lambda (process event)
-       (when (memq (process-status process) '(exit signal))
-         (message "%s %s" (process-name process) (string-trim event)))))
+    (set-process-sentinel proc #'term-sessions--zmx-process-sentinel)
     (message "Started async zmx run in %s" name)
     proc))
 
@@ -384,11 +385,7 @@ This starts `zmx run NAME -d COMMAND...' and returns immediately.  Use
   (let* ((buffer (get-buffer-create (term-sessions--buffer-name name "wait")))
          (proc (term-sessions--start-zmx-process
                 (format "term-session-wait:%s" name) buffer "wait" name)))
-    (set-process-sentinel
-     proc
-     (lambda (process event)
-       (when (memq (process-status process) '(exit signal))
-         (message "%s %s" (process-name process) (string-trim event)))))
+    (set-process-sentinel proc #'term-sessions--zmx-process-sentinel)
     (pop-to-buffer buffer)
     proc))
 
