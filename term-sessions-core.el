@@ -35,15 +35,23 @@ Currently only `zmx' is implemented."
   :group 'term-sessions
   :type 'integer)
 
-(defvar term-sessions-name-history nil)
-(defvar term-sessions-command-history nil)
+(defvar term-sessions-name-history nil
+  "History of session names read by term-sessions commands.")
+
+(defvar term-sessions-command-history nil
+  "History of shell commands read by term-sessions prompts.")
 
 (defvar term-sessions--completion-entry-table (make-hash-table :test #'equal)
   "Recently offered completion candidates keyed by display string.")
 
-(defvar-local term-sessions-current-name nil)
-(defvar-local term-sessions-current-backend nil)
-(defvar-local term-sessions-current-spec nil)
+(defvar-local term-sessions-current-name nil
+  "Name of the term session associated with the current buffer.")
+
+(defvar-local term-sessions-current-backend nil
+  "Backend symbol for the term session associated with the current buffer.")
+
+(defvar-local term-sessions-current-spec nil
+  "`term-sessions-spec' object for the session associated with the current buffer.")
 
 (cl-defstruct (term-sessions-location
                (:constructor term-sessions-location-create)
