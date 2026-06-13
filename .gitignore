@@ -2,4 +2,9 @@
 /result
 /result-*
 .direnv/
+
+# Local LLM planning/research notes.
+PLAN.md
 progress.md
+persistent-terminal-session-options.md
+research/
