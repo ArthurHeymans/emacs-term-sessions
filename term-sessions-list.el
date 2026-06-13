@@ -1,4 +1,5 @@
 ;;; term-sessions-list.el --- Session list UI for term-sessions -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 

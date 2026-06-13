@@ -1,4 +1,5 @@
 ;;; term-sessions-core.el --- Core data for persistent terminal sessions -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 

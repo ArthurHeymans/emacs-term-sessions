@@ -1,4 +1,5 @@
 ;;; term-sessions.el --- Persistent terminal sessions via zmx -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; Copyright (C) 2026
 

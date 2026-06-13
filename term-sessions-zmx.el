@@ -1,4 +1,5 @@
 ;;; term-sessions-zmx.el --- zmx backend for term-sessions -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 

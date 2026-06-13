@@ -45,11 +45,15 @@
           version = "0.1.0";
           src = packageSrc;
           packageRequires = with pkgs.emacsPackages; [ ];
+          meta = {
+            description = "Emacs frontend for persistent terminal sessions via zmx";
+            homepage = "https://github.com/arthur/term-sessions";
+            license = lib.licenses.gpl3Plus;
+          };
         };
 
         checks.default = pkgs.runCommand "term-sessions-check" { nativeBuildInputs = [ pkgs.emacs ]; } ''
-          cp ${testSrc}/term-sessions.el .
-          cp ${testSrc}/term-sessions-tests.el .
+          cp ${testSrc}/*.el .
           emacs --batch -Q -L . -f batch-byte-compile term-sessions.el
           emacs --batch -Q -L . -l term-sessions-tests.el -f ert-run-tests-batch-and-exit
           touch $out
