@@ -169,12 +169,8 @@ session server and should not be listed twice."
                 (buffer-list))))
 
 (defun term-sessions-list--directory-key (directory)
-  "Return backend identity key for DIRECTORY.
-Remote zmx sessions are keyed by TRAMP prefix rather than localname, because
-`/rpc:host:/' and `/rpc:host:/some/cwd' query the same zmx server.  Local zmx
-sessions are likewise keyed to the local backend rather than to one cwd."
-  (or (file-remote-p directory)
-      'local))
+  "Return backend identity key for DIRECTORY."
+  (term-sessions--directory-key directory))
 
 (defun term-sessions-list--delete-duplicate-directories (directories)
   "Return DIRECTORIES with duplicate backend identities removed."
@@ -269,17 +265,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
 
 (defun term-sessions-list--session-buffer-for-entry (name directory)
   "Return an existing buffer for session NAME at DIRECTORY, or nil."
-  (let ((directory-key (term-sessions-list--directory-key directory))
-        found)
-    (dolist (buffer (buffer-list))
-      (with-current-buffer buffer
-        (when (and (null found)
-                   (equal term-sessions-current-name name)
-                   (eq term-sessions-current-backend term-sessions-backend)
-                   (equal (term-sessions-list--directory-key default-directory)
-                          directory-key))
-          (setq found buffer))))
-    found))
+  (term-sessions--session-buffer name directory term-sessions-backend))
 
 (defun term-sessions-list-open ()
   "Open session at point, reusing an existing session buffer when present."

@@ -28,7 +28,7 @@ For example: start a =dev= session on a remote build box from your laptop, close
 | Terminal attach | =dtach= attach, often with log context | Frontend adapters opening backend attaches |
 | Finite jobs | Mature: compile, rerun, notifications, exit status | Basic =run=/=wait= commands; less mature |
 | Interactive shells | Supported, but command/job-centered | The central model |
-| Org support | Babel =:detached t= job execution | Store/follow links to named sessions |
+| Org support | Babel =:detached t= job execution | Store/follow links and Babel =:term-session NAME= execution |
 | Remote support | Mature TRAMP/connection-local support | TRAMP-aware control calls; remote attach support is evolving |
 | UI ecosystem | Mature shell/eshell/compile/dired/consult integrations | Smaller greenfield UI, focused on terminal sessions |
 
@@ -49,6 +49,7 @@ Implemented pieces include:
 - local frontend adapters for =vterm=, =eat=, =ghostel=, =term=, and =shell=
 - TRAMP-aware noninteractive/control operations
 - Org links for storing and reopening session specs
+- Org Babel shell blocks via =:term-session NAME=
 - tabulated session list UI
 
 * Installation
@@ -123,6 +124,35 @@ Org links store a session spec with the original TRAMP directory/cwd, command, f
 #+begin_src org
 [[term-session:spec:backend=zmx&name=work&cwd=%2Fsshx%3Ahost%3A%2Frepo%2F&frontend=term]]
 #+end_src
+
+* Org Babel
+
+Shell source blocks can be sent to a zmx session in the same spirit as
+=detached.el='s =:detached t= support:
+
+#+begin_src org
+,#+begin_src sh :term-session build
+nix build
+,#+end_src
+
+,#+RESULTS:
+: [[term-session:spec:...][build]]
+#+end_src
+
+The block sends the expanded body to the chosen terminal session and returns a
+link to that session.  Input is sent through the Emacs terminal buffer when one
+exists.  If no buffer exists, the session is opened first and the block is sent
+after a short delay.  This avoids a short-lived =zmx send= client stealing input
+leadership from the visible terminal.  Set
+=term-sessions-org-babel-use-zmx-send-when-no-buffer= non-nil if you prefer the
+old non-opening fallback.  It does not track jobs or capture output.  Reopen the
+live terminal through the result link, =M-x term-sessions-open=, or
+=M-x term-sessions-list=.
+
+Use =:term-session NAME= to choose the zmx session explicitly.  If you prefer
+Org's normal =:session= name, use =:term-session t :session NAME=.  When no
+usable =:session= name is present, =:term-session t= uses
+=term-sessions-org-babel-default-session-name= (default =org-babel=).
 
 * Frontends
 

@@ -17,6 +17,53 @@
 
 (declare-function org-link-set-parameters "ol" (type &rest parameters))
 (declare-function org-link-store-props "ol" (&rest plist))
+(declare-function org-babel-pick-name "ob-core" (names params))
+(declare-function org-babel-reassemble-table "ob-core" (table colnames rownames))
+(declare-function comint-send-string "comint" (process string))
+(declare-function ghostel--send-string "ghostel" (string))
+(declare-function ghostel-semi-char-mode "ghostel" ())
+(declare-function term-send-raw-string "term" (string))
+(defvar ghostel--process nil)
+(defvar ghostel--input-mode nil)
+
+(defcustom term-sessions-org-babel-default-session-name "org-babel"
+  "Default zmx session name for Org Babel blocks.
+This is used when a shell block has `:term-session t' and no usable
+`:session' header value.  To choose a specific zmx session per block, use
+`:term-session NAME'."
+  :group 'term-sessions
+  :type 'string)
+
+(defcustom term-sessions-org-babel-result-format "[[%s][%s]]"
+  "Format string inserted as the result of a term-session Babel block.
+It is called with the Org link and session name as arguments."
+  :group 'term-sessions
+  :type 'string)
+
+(defcustom term-sessions-org-babel-send-after-create-delay 1.0
+  "Seconds to wait before sending a Babel block to a newly created session.
+The delay gives the visible terminal frontend and user shell a moment to
+initialize before the block is sent."
+  :group 'term-sessions
+  :type 'number)
+
+(defcustom term-sessions-org-babel-use-bracketed-paste nil
+  "When non-nil, wrap Org Babel blocks in bracketed paste markers.
+This can make some shells treat a block as one paste, but it is disabled by
+default because sending bracketed-paste escape sequences through zmx can make
+some terminals/shells appear frozen while they wait for escape sequence
+resolution."
+  :group 'term-sessions
+  :type 'boolean)
+
+(defcustom term-sessions-org-babel-use-zmx-send-when-no-buffer nil
+  "When non-nil, fall back to `zmx send' if no Emacs terminal buffer exists.
+The default is nil because a short-lived `zmx send' client can temporarily take
+leadership away from the visible attach client, which makes subsequent manual
+terminal input appear delayed.  With the default nil, an active session without
+an Emacs buffer is opened first and the block is sent through that buffer."
+  :group 'term-sessions
+  :type 'boolean)
 
 (defun term-sessions--org-encode-alist (alist)
   "Encode ALIST as a query string."
@@ -132,6 +179,207 @@ Return a plist with at least :backend, :location, :name, :cwd, :command,
       (intern value)
     fallback))
 
+(defun term-sessions--org-babel-false-value-p (value)
+  "Return non-nil when Babel header VALUE means false."
+  (member (downcase (format "%s" value)) '("" "nil" "no" "false")))
+
+(defun term-sessions--org-babel-default-value-p (value)
+  "Return non-nil when Babel header VALUE asks for the default name."
+  (member (downcase (format "%s" value)) '("t" "yes" "true")))
+
+(defun term-sessions--org-babel-session-name (params)
+  "Return zmx session name requested by Babel PARAMS, or nil.
+The `:term-session' header enables this integration.  If its value is a
+specific string, that string is used as the zmx session name.  If its value
+is t/yes/true, use the Org `:session' name when present and not `none';
+otherwise use `term-sessions-org-babel-default-session-name'."
+  (when-let ((value (alist-get :term-session params)))
+    (unless (term-sessions--org-babel-false-value-p value)
+      (if (term-sessions--org-babel-default-value-p value)
+          (let ((session (alist-get :session params)))
+            (if (or (not session)
+                    (term-sessions--org-babel-false-value-p session)
+                    (string= (downcase (format "%s" session)) "none"))
+                term-sessions-org-babel-default-session-name
+              (format "%s" session)))
+        (format "%s" value)))))
+
+(defun term-sessions--org-babel-input (body)
+  "Return BODY as terminal input for an interactive shell."
+  (let ((text (string-trim-right body)))
+    (if term-sessions-org-babel-use-bracketed-paste
+        ;; The final carriage return executes the pasted block.
+        (concat "\e[200~" text "\e[201~\r")
+      (concat text "\r"))))
+
+(defun term-sessions--org-babel-link-result (name)
+  "Return an Org link result for zmx session NAME."
+  (format term-sessions-org-babel-result-format
+          (term-sessions--spec-org-link
+           (term-sessions-spec-current name nil term-sessions-preferred-frontend))
+          name))
+
+(defun term-sessions--org-babel-login-shell ()
+  "Return the user's login shell for creating Org Babel sessions."
+  (or (getenv "SHELL")
+      (when (not (file-remote-p default-directory))
+        (ignore-errors
+          (with-temp-buffer
+            (when (eq 0 (process-file "getent" nil t nil "passwd" (user-login-name)))
+              (let* ((line (string-trim (buffer-string)))
+                     (fields (split-string line ":")))
+                (when (>= (length fields) 7)
+                  (nth 6 fields)))))))
+      shell-file-name))
+
+(defun term-sessions--org-babel-ensure-session (name)
+  "Ensure zmx session NAME exists.
+Return `active' when NAME was already active.  If it was missing, open it
+through the normal visible frontend and return `created'."
+  (if (term-sessions--active-p name)
+      'active
+    (let ((process-environment (copy-sequence process-environment)))
+      (when-let ((shell (term-sessions--org-babel-login-shell)))
+        (setenv "SHELL" shell))
+      (term-sessions-open-with-frontend
+       name nil term-sessions-preferred-frontend t))
+    'created))
+
+(defun term-sessions--org-babel-buffer-process (buffer)
+  "Return BUFFER's live terminal process, or nil."
+  (with-current-buffer buffer
+    (let ((process (or (get-buffer-process (current-buffer))
+                       (and (boundp 'ghostel--process) ghostel--process))))
+      (when (and process (process-live-p process))
+        process))))
+
+(defun term-sessions--org-babel-live-buffer (name)
+  "Return NAME's existing session buffer when it has a live process."
+  (when-let ((buffer (term-sessions--session-buffer
+                      name default-directory term-sessions-backend)))
+    (when (term-sessions--org-babel-buffer-process buffer)
+      buffer)))
+
+(defun term-sessions--org-babel-process-send-string (process input)
+  "Send INPUT to PROCESS using the current buffer's terminal frontend API."
+  (cond
+   ((and (derived-mode-p 'ghostel-mode)
+         (fboundp 'ghostel--send-string))
+    ;; Ghostel keeps redraw/input latency bookkeeping around its own send
+    ;; function.  Bypassing it with `process-send-string' can leave subsequent
+    ;; user input looking delayed until the normal redraw timer catches up.  If
+    ;; the user left the buffer in copy/emacs mode, return to the normal input
+    ;; mode before injecting text so live redraws are not frozen.
+    (when (and (boundp 'ghostel--input-mode)
+               (memq ghostel--input-mode '(copy emacs))
+               (fboundp 'ghostel-semi-char-mode))
+      (ghostel-semi-char-mode))
+    (ghostel--send-string input))
+   ((and (derived-mode-p 'term-mode)
+         (fboundp 'term-send-raw-string))
+    (term-send-raw-string input))
+   ((derived-mode-p 'comint-mode)
+    (comint-send-string process input))
+   (t
+    (process-send-string process input))))
+
+(defun term-sessions--org-babel-send-to-buffer (buffer body)
+  "Send BODY through existing terminal BUFFER.
+Return non-nil when BUFFER had a live process and the text was sent."
+  (when-let ((process (term-sessions--org-babel-buffer-process buffer)))
+    (with-current-buffer buffer
+      (term-sessions--org-babel-process-send-string
+       process (term-sessions--org-babel-input body)))
+    t))
+
+(defun term-sessions--org-babel-send-now (name body)
+  "Send BODY to active zmx session NAME now.
+Prefer an already-open Emacs terminal buffer.  This avoids creating a
+short-lived `zmx send' client, which can temporarily steal zmx leadership from
+the visible terminal.  Return `buffer' or `zmx' to describe the send path."
+  (if-let ((buffer (term-sessions--org-babel-live-buffer name)))
+      (if (term-sessions--org-babel-send-to-buffer buffer body)
+          'buffer
+        (if term-sessions-org-babel-use-zmx-send-when-no-buffer
+            (progn
+              (term-sessions--zmx-with-stdin (term-sessions--org-babel-input body)
+                                             "send" name)
+              'zmx)
+          (user-error "No live Emacs terminal buffer for term session `%s'" name)))
+    (if term-sessions-org-babel-use-zmx-send-when-no-buffer
+        (progn
+          (term-sessions--zmx-with-stdin (term-sessions--org-babel-input body)
+                                         "send" name)
+          'zmx)
+      (user-error "No live Emacs terminal buffer for term session `%s'" name))))
+
+(defun term-sessions--org-babel-send-later (name body)
+  "Send BODY to zmx session NAME after creation delay."
+  (run-at-time
+   term-sessions-org-babel-send-after-create-delay nil
+   (lambda (session text directory)
+     (let ((default-directory directory))
+       (condition-case err
+           (let ((method (term-sessions--org-babel-send-now session text)))
+             (message "Sent Org Babel block to new term session `%s' via %s"
+                      session method))
+         (error
+          (message "Failed to send Org Babel block to `%s': %s"
+                   session (error-message-string err))))))
+   name body default-directory))
+
+(defun term-sessions--org-babel-open-active-session (name)
+  "Open active zmx session NAME in an Emacs terminal buffer."
+  (term-sessions-open-with-frontend
+   name nil term-sessions-preferred-frontend nil))
+
+(defun term-sessions--org-babel-send (name body)
+  "Send Babel BODY to zmx session NAME and return an Org link."
+  (pcase (term-sessions--org-babel-ensure-session name)
+    ('active
+     (if (or (term-sessions--org-babel-live-buffer name)
+             term-sessions-org-babel-use-zmx-send-when-no-buffer)
+         (let ((method (term-sessions--org-babel-send-now name body)))
+           (message "Sent Org Babel block to term session `%s' via %s" name method))
+       (term-sessions--org-babel-open-active-session name)
+       (term-sessions--org-babel-send-later name body)
+       (message "Opened term session `%s'; scheduled Org Babel block send" name)))
+    ('created
+     (term-sessions--org-babel-send-later name body)
+     (message "Created term session `%s'; scheduled Org Babel block send" name)))
+  (term-sessions--org-babel-link-result name))
+
+(defun term-sessions--org-babel-reassemble-result (result params)
+  "Return Org Babel RESULT reassembled according to PARAMS."
+  (org-babel-reassemble-table
+   result
+   (org-babel-pick-name
+    (cdr (assq :colname-names params)) (cdr (assq :colnames params)))
+   (org-babel-pick-name
+    (cdr (assq :rowname-names params)) (cdr (assq :rownames params)))))
+
+;;;###autoload
+(defun term-sessions-org-babel-shell (org-babel-execute-shell-fun body params)
+  "Send ob-shell BODY to a zmx shell when `:term-session' is present.
+If the session is missing, create it as an interactive user shell first.
+Then send the block text through the Emacs terminal buffer and return a
+clickable `term-session:' Org link."
+  (if-let ((name (term-sessions--org-babel-session-name params)))
+      (term-sessions--org-babel-reassemble-result
+       (term-sessions--org-babel-send name body)
+       params)
+    (funcall org-babel-execute-shell-fun body params)))
+
+;;;###autoload
+(defun term-sessions-org-babel-sh (org-babel-sh-evaluate-fun &rest args)
+  "Fallback around advice for `org-babel-sh-evaluate'.
+If `:term-session' reaches this lower-level function, send BODY to the terminal
+session and return a `term-session:' Org link."
+  (pcase-let ((`(,_session ,body ,params ,_stdin ,_cmdline) args))
+    (if-let ((name (term-sessions--org-babel-session-name params)))
+        (term-sessions--org-babel-send name body)
+      (apply org-babel-sh-evaluate-fun args))))
+
 (defun term-sessions--open-org-path (path _arg)
   "Open Org term-session link PATH.
 Open only active sessions automatically.  If the linked session is missing,
@@ -145,7 +393,9 @@ offer to recreate it with the stored command and cwd."
     (unless (string= backend "zmx")
       (user-error "Unsupported term-session backend: %s" backend))
     (if (term-sessions--active-p name)
-        (term-sessions-open-with-frontend name nil frontend nil)
+        (if-let ((buffer (term-sessions--session-buffer name default-directory 'zmx)))
+            (pop-to-buffer buffer)
+          (term-sessions-open-with-frontend name nil frontend nil))
       (when (yes-or-no-p (format "Session `%s' is not active; recreate it? " name))
         (term-sessions-open-with-frontend name command frontend t)))))
 
@@ -153,6 +403,10 @@ offer to recreate it with the stored command and cwd."
   (org-link-set-parameters "term-session"
                            :follow #'term-sessions--open-org-path
                            :store #'term-sessions-store-org-link))
+
+(with-eval-after-load 'ob-shell
+  (advice-add 'org-babel-execute:shell :around #'term-sessions-org-babel-shell)
+  (advice-add 'org-babel-sh-evaluate :around #'term-sessions-org-babel-sh))
 
 (provide 'term-sessions-org)
 ;;; term-sessions-org.el ends here

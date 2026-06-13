@@ -166,6 +166,28 @@
       (should (equal opened '("dev" nil term nil)))
       (should-not started))))
 
+(ert-deftest term-sessions-test-org-path-reuses-existing-buffer ()
+  (let ((buffer (get-buffer-create " *term-sessions-test-org-link*"))
+        popped
+        opened)
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (setq default-directory "/tmp/")
+            (setq-local term-sessions-current-name "dev")
+            (setq-local term-sessions-current-backend 'zmx))
+          (cl-letf (((symbol-function 'term-sessions--active-p)
+                     (lambda (name) (equal name "dev")))
+                    ((symbol-function 'pop-to-buffer)
+                     (lambda (buf &rest _args) (setq popped buf)))
+                    ((symbol-function 'term-sessions-open-with-frontend)
+                     (lambda (&rest args) (setq opened args))))
+            (term-sessions--open-org-path
+             "spec:backend=zmx&name=dev&cwd=%2Ftmp%2F&frontend=term" nil)
+            (should (eq popped buffer))
+            (should-not opened)))
+      (kill-buffer buffer))))
+
 (ert-deftest term-sessions-test-org-path-opens-ssh-with-remote-directory ()
   (let (active-directory opened-directory opened)
     (cl-letf (((symbol-function 'term-sessions--active-p)
@@ -192,6 +214,155 @@
       (term-sessions--open-org-path "spec:backend=zmx&name=missing&cwd=%2Ftmp%2F&frontend=term" nil)
       (should-not opened)
       (should (equal started '("missing" nil term t))))))
+
+(ert-deftest term-sessions-test-org-babel-session-name-from-header ()
+  (let ((term-sessions-org-babel-default-session-name "org-default"))
+    (should (equal (term-sessions--org-babel-session-name
+                    '((:term-session . "dev")))
+                   "dev"))
+    (should (equal (term-sessions--org-babel-session-name
+                    '((:term-session . "t") (:session . "build")))
+                   "build"))
+    (should (equal (term-sessions--org-babel-session-name
+                    '((:term-session . "t") (:session . "none")))
+                   "org-default"))
+    (should-not (term-sessions--org-babel-session-name
+                 '((:term-session . "no") (:session . "build"))))))
+
+(ert-deftest term-sessions-test-org-babel-sh-sends-to-existing-session ()
+  (let ((term-sessions-org-babel-use-zmx-send-when-no-buffer t)
+        sent args)
+    (cl-letf (((symbol-function 'term-sessions--active-p)
+               (lambda (name) (equal name "dev")))
+              ((symbol-function 'term-sessions--zmx-with-stdin)
+               (lambda (stdin &rest zmx-args)
+                 (setq sent stdin
+                       args zmx-args)
+                 "")))
+      (should (equal (term-sessions-org-babel-sh
+                      (lambda (&rest _args) "original")
+                      nil " echo hi\n" '((:term-session . "dev")) nil nil)
+                     (term-sessions--org-babel-link-result "dev")))
+      (should (equal sent " echo hi\r"))
+      (should (equal args '("send" "dev"))))))
+
+(ert-deftest term-sessions-test-org-babel-shell-skips-normal-executor ()
+  (let ((term-sessions-org-babel-use-zmx-send-when-no-buffer t)
+        sent args original-called)
+    (cl-letf (((symbol-function 'term-sessions--active-p)
+               (lambda (name) (equal name "dev")))
+              ((symbol-function 'term-sessions--zmx-with-stdin)
+               (lambda (stdin &rest zmx-args)
+                 (setq sent stdin
+                       args zmx-args)
+                 ""))
+              ((symbol-function 'org-babel-reassemble-table)
+               (lambda (table _colnames _rownames) table))
+              ((symbol-function 'org-babel-pick-name)
+               (lambda (_names _params) nil)))
+      (should (equal (term-sessions-org-babel-shell
+                      (lambda (&rest _args)
+                        (setq original-called t)
+                        "original")
+                      "echo hi"
+                      '((:term-session . "t") (:session . "dev")))
+                     (term-sessions--org-babel-link-result "dev")))
+      (should-not original-called)
+      (should (equal sent "echo hi\r"))
+      (should (equal args '("send" "dev"))))))
+
+(ert-deftest term-sessions-test-org-babel-prefers-existing-buffer-process ()
+  (let* ((buffer (get-buffer-create " *term-sessions-test-org-babel*"))
+         (process (start-process "term-sessions-test-org-babel" buffer "cat")))
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (setq default-directory "/tmp/")
+            (setq-local term-sessions-current-name "dev")
+            (setq-local term-sessions-current-backend 'zmx))
+          (cl-letf (((symbol-function 'term-sessions--zmx-with-stdin)
+                     (lambda (&rest _args) (error "should not call zmx send"))))
+            (should (eq (term-sessions--org-babel-send-now "dev" "echo hi")
+                        'buffer))))
+      (when (process-live-p process)
+        (delete-process process))
+      (kill-buffer buffer))))
+
+(ert-deftest term-sessions-test-org-babel-opens-active-session-without-buffer ()
+  (let ((term-sessions-org-babel-use-zmx-send-when-no-buffer nil)
+        opened scheduled sent)
+    (cl-letf (((symbol-function 'term-sessions--active-p)
+               (lambda (name) (equal name "dev")))
+              ((symbol-function 'term-sessions-open-with-frontend)
+               (lambda (&rest args) (setq opened args)))
+              ((symbol-function 'term-sessions--org-babel-send-later)
+               (lambda (&rest args) (setq scheduled args)))
+              ((symbol-function 'term-sessions--zmx-with-stdin)
+               (lambda (&rest args) (setq sent args))))
+      (should (equal (term-sessions--org-babel-send "dev" "echo hi")
+                     (term-sessions--org-babel-link-result "dev")))
+      (should (equal opened '("dev" nil term nil)))
+      (should (equal scheduled '("dev" "echo hi")))
+      (should-not sent))))
+
+(ert-deftest term-sessions-test-org-babel-opens-active-remote-session-with-remote-directory ()
+  (let ((default-directory "/ssh:user@example:/tmp/project/")
+        (term-sessions-org-babel-use-zmx-send-when-no-buffer nil)
+        opened-directory
+        scheduled-directory
+        opened
+        scheduled
+        sent)
+    (cl-letf (((symbol-function 'term-sessions--active-p)
+               (lambda (name) (equal name "dev")))
+              ((symbol-function 'term-sessions-open-with-frontend)
+               (lambda (&rest args)
+                 (setq opened args)
+                 (setq opened-directory default-directory)))
+              ((symbol-function 'term-sessions--org-babel-send-later)
+               (lambda (&rest args)
+                 (setq scheduled args)
+                 (setq scheduled-directory default-directory)))
+              ((symbol-function 'term-sessions--zmx-with-stdin)
+               (lambda (&rest args) (setq sent args))))
+      (term-sessions--org-babel-send "dev" "echo hi")
+      (should (equal opened '("dev" nil term nil)))
+      (should (equal opened-directory "/ssh:user@example:/tmp/project/"))
+      (should (equal scheduled '("dev" "echo hi")))
+      (should (equal scheduled-directory "/ssh:user@example:/tmp/project/"))
+      (should-not sent))))
+
+(ert-deftest term-sessions-test-org-babel-reuses-remote-session-buffer-by-prefix ()
+  (let* ((buffer (get-buffer-create " *term-sessions-test-org-babel-remote*"))
+         (process (start-process "term-sessions-test-org-babel-remote" buffer "cat"))
+         sent)
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (setq default-directory "/ssh:user@example:/tmp/project/")
+            (setq-local term-sessions-current-name "dev")
+            (setq-local term-sessions-current-backend 'zmx))
+          (cl-letf (((symbol-function 'process-send-string)
+                     (lambda (proc string)
+                       (setq sent (list proc string)))))
+            (let ((default-directory "/ssh:user@example:/tmp/other-project/"))
+              (should (eq (term-sessions--org-babel-send-now "dev" "echo remote")
+                          'buffer)))
+            (should (eq (car sent) process))
+            (should (equal (cadr sent) "echo remote\r"))))
+      (when (process-live-p process)
+        (delete-process process))
+      (kill-buffer buffer))))
+
+(ert-deftest term-sessions-test-org-babel-sh-falls-through-without-header ()
+  (let (called)
+    (should (equal (term-sessions-org-babel-sh
+                    (lambda (&rest args)
+                      (setq called args)
+                      "original")
+                    'session "echo hi" '((:session . "dev")) nil nil)
+                   "original"))
+    (should (equal called '(session "echo hi" ((:session . "dev")) nil nil)))))
 
 (ert-deftest term-sessions-test-open-requires-existing-session ()
   (cl-letf (((symbol-function 'term-sessions--ensure-zmx) #'ignore)

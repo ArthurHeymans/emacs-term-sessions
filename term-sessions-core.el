@@ -105,5 +105,28 @@ Currently only `zmx' is implemented."
   (when (and value (not (string-empty-p value)))
     value))
 
+(defun term-sessions--directory-key (directory)
+  "Return backend identity key for DIRECTORY.
+Remote zmx sessions are keyed by TRAMP prefix rather than localname, because
+`/rpc:host:/' and `/rpc:host:/some/cwd' query the same zmx server.  Local zmx
+sessions are likewise keyed to the local backend rather than to one cwd."
+  (or (file-remote-p directory)
+      'local))
+
+(defun term-sessions--session-buffer (name directory &optional backend)
+  "Return an existing term-sessions buffer for NAME at DIRECTORY, or nil."
+  (let ((directory-key (term-sessions--directory-key directory))
+        (backend (or backend term-sessions-backend))
+        found)
+    (dolist (buffer (buffer-list))
+      (with-current-buffer buffer
+        (when (and (null found)
+                   (equal term-sessions-current-name name)
+                   (eq term-sessions-current-backend backend)
+                   (equal (term-sessions--directory-key default-directory)
+                          directory-key))
+          (setq found buffer))))
+    found))
+
 (provide 'term-sessions-core)
 ;;; term-sessions-core.el ends here
