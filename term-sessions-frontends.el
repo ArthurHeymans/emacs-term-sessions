@@ -71,7 +71,7 @@ This is intentionally pluggable because ghostel APIs are still evolving."
   "Return compact display name for DIRECTORY."
   (let* ((localname (or (file-remote-p directory 'localname) directory))
          (short (abbreviate-file-name (directory-file-name localname))))
-    (if (string-match "\`/home/[^/]+\(/.*\)?\'" short)
+    (if (string-match "\\`/home/[^/]+\\(/.*\\)?\\'" short)
         (concat "~" (or (match-string 1 short) ""))
       short)))
 

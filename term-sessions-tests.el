@@ -639,6 +639,14 @@
   (should (string-suffix-p "…" (string-trim-right
                                  (term-sessions--fit-column "development" 5)))))
 
+(ert-deftest term-sessions-test-short-directory-name-abbreviates-home-path ()
+  (should (equal (term-sessions--short-directory-name
+                  "/home/term-sessions-test-user/project/")
+                 "~/project"))
+  (should (equal (term-sessions--short-directory-name
+                  "/home/term-sessions-test-user/")
+                 "~")))
+
 (ert-deftest term-sessions-test-completion-table-registers-term-session-category ()
   (clrhash term-sessions--completion-entry-table)
   (let ((default-directory "/tmp/"))
