@@ -6,6 +6,15 @@ Persistent terminal sessions for Emacs, powered by an external terminal-session 
 
 The design goal is simple: Emacs is the client, not the owner.  Session lifecycle, PTYs, history, and attach state belong to the backend.
 
+* Why this exists
+
+- Start a shell on one computer and resume it from another, as long as both can reach the same backend/session host.
+- Keep project terminals alive across Emacs restarts, buffer kills, and dropped SSH connections.
+- Use stable names such as =dev=, =build=, or =prod-logs= instead of hunting for the right terminal buffer.
+- Store Org links to sessions so notes, runbooks, and projects can point back to a live terminal context.
+
+For example: start a =dev= session on a remote build box from your laptop, close Emacs, switch to another machine, connect to the same host, and reopen the same named terminal session.  No Emacs-side session database needs to be copied between machines.
+
 * How this differs from detached.el
 
 [[https://sr.ht/~niklaseklund/detached.el/][detached.el]] is excellent if you want to run commands from Emacs and come back to their output later.  =term-sessions.el= is exploring a different shape: long-lived named terminal sessions that feel like reconnectable terminals first, and Emacs jobs second.
