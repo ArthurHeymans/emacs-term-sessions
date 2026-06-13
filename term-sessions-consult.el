@@ -33,27 +33,6 @@
 (defvar term-sessions-consult--entry-table (make-hash-table :test #'equal)
   "Session entries keyed by Consult candidate string.")
 
-(defun term-sessions-consult--distribute-extra-width (columns extra)
-  "Add EXTRA display cells to COLUMNS.
-COLUMNS is a list of (KEY WIDTH WEIGHT MAX-WIDTH).  Return an alist of
-KEY-to-WIDTH values."
-  (let ((columns (mapcar #'copy-sequence columns))
-        changed)
-    (while (> extra 0)
-      (setq changed nil)
-      (dolist (column columns)
-        (pcase-let ((`(,_key ,width ,weight ,max-width) column))
-          (dotimes (_ weight)
-            (when (and (> extra 0)
-                       (or (null max-width) (< width max-width)))
-              (setcar (cdr column) (1+ width))
-              (setq width (1+ width)
-                    extra (1- extra)
-                    changed t)))))
-      (unless changed
-        (setq extra 0)))
-    (mapcar (lambda (column) (cons (car column) (cadr column))) columns)))
-
 (defun term-sessions-consult--column-widths (&optional total-width)
   "Return responsive Consult candidate column widths for TOTAL-WIDTH."
   (let* ((separators 6)
@@ -64,7 +43,7 @@ KEY-to-WIDTH values."
                  (cwd 18 4 nil)
                  (command 20 5 nil)))
          (base-total (apply #'+ (mapcar #'cadr base))))
-    (term-sessions-consult--distribute-extra-width
+    (term-sessions--distribute-extra-width
      base (max 0 (- budget base-total)))))
 
 (defun term-sessions-consult--width (widths key)

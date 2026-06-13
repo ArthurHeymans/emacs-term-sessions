@@ -126,6 +126,27 @@ preserved; callers should add faces/properties after fitting if needed."
          (padding (- width (string-width truncated))))
     (concat truncated (make-string (max 0 padding) ? ))))
 
+(defun term-sessions--distribute-extra-width (columns extra)
+  "Add EXTRA display cells to COLUMNS.
+COLUMNS is a list of (KEY WIDTH WEIGHT MAX-WIDTH).  Return an alist of
+KEY-to-WIDTH values."
+  (let ((columns (mapcar #'copy-sequence columns))
+        changed)
+    (while (> extra 0)
+      (setq changed nil)
+      (dolist (column columns)
+        (pcase-let ((`(,_key ,width ,weight ,max-width) column))
+          (dotimes (_ weight)
+            (when (and (> extra 0)
+                       (or (null max-width) (< width max-width)))
+              (setcar (cdr column) (1+ width))
+              (setq width (1+ width)
+                    extra (1- extra)
+                    changed t)))))
+      (unless changed
+        (setq extra 0)))
+    (mapcar (lambda (column) (cons (car column) (cadr column))) columns)))
+
 (defun term-sessions--directory-key (directory)
   "Return backend identity key for DIRECTORY.
 Remote zmx sessions are keyed by TRAMP prefix rather than localname, because

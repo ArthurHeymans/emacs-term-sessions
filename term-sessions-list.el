@@ -94,27 +94,6 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
   (add-hook 'eldoc-documentation-functions #'term-sessions-list-eldoc nil t)
   (add-hook 'tabulated-list-revert-hook #'term-sessions-list-refresh nil t))
 
-(defun term-sessions-list--distribute-extra-width (columns extra)
-  "Add EXTRA display cells to COLUMNS.
-COLUMNS is a list of (KEY WIDTH WEIGHT MAX-WIDTH).  Return an alist of
-KEY-to-WIDTH values."
-  (let ((columns (mapcar #'copy-sequence columns))
-        changed)
-    (while (> extra 0)
-      (setq changed nil)
-      (dolist (column columns)
-        (pcase-let ((`(,_key ,width ,weight ,max-width) column))
-          (dotimes (_ weight)
-            (when (and (> extra 0)
-                       (or (null max-width) (< width max-width)))
-              (setcar (cdr column) (1+ width))
-              (setq width (1+ width)
-                    extra (1- extra)
-                    changed t)))))
-      (unless changed
-        (setq extra 0)))
-    (mapcar (lambda (column) (cons (car column) (cadr column))) columns)))
-
 (defun term-sessions-list--column-widths (&optional total-width)
   "Return responsive column widths for TOTAL-WIDTH or the selected window."
   (let* ((padding 2)
@@ -128,7 +107,7 @@ KEY-to-WIDTH values."
                  (cwd 10 4 nil)
                  (command 8 5 nil)))
          (base-total (apply #'+ (mapcar #'cadr base))))
-    (append (term-sessions-list--distribute-extra-width
+    (append (term-sessions--distribute-extra-width
              base (max 0 (- variable-budget base-total)))
             '((created . 16)
               (updated . 16)

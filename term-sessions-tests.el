@@ -661,6 +661,14 @@
         (should (equal (plist-get (term-sessions--completion-entry "dev") :cwd)
                        "/tmp/project"))))))
 
+(ert-deftest term-sessions-test-distribute-extra-width-respects-max-width ()
+  (should (equal (term-sessions--distribute-extra-width
+                  '((name 2 1 3)
+                    (cwd 4 2 6))
+                  10)
+                 '((name . 3)
+                   (cwd . 6)))))
+
 (ert-deftest term-sessions-test-list-column-widths-scale-with-window ()
   (let ((narrow (term-sessions-list--column-widths 100))
         (wide (term-sessions-list--column-widths 180)))
