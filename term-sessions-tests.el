@@ -682,11 +682,10 @@
                         :clients "1" :cwd "/tmp/project" :project "project"
                         :command "nvim" :updated "2026-01-01"))
            (candidate (term-sessions-consult--display entry)))
-      (should (string-match-p "\\`dev +local +c:1 +nvim" candidate))
-      (should-not (string-match-p "/tmp/project" candidate))
+      (should (string-match-p "\\`dev +local +/tmp/project +nvim" candidate))
       (should (equal (plist-get (term-sessions--completion-entry candidate) :name)
                      "dev"))
-      (should (string-match-p "cwd:/tmp/project"
+      (should (string-match-p "c:1"
                               (term-sessions-consult--annotate candidate)))
       (should (string-match-p "\\[project\\]"
                               (term-sessions-consult--annotate candidate)))
@@ -725,10 +724,10 @@
               ((symbol-function 'frame-width) (lambda (&optional _frame) 100)))
       (let ((items (term-sessions-consult--items #'term-sessions-consult--local-p)))
         (should (= (length items) 1))
-        (should (string-match-p "\\`dev +local +c:1 +nvim" (car items)))
+        (should (string-match-p "\\`dev +local +/tmp/project +nvim" (car items)))
         (should (equal (plist-get (term-sessions--completion-entry (car items)) :name)
                        "dev"))
-        (should (string-match-p "cwd:/tmp/project"
+        (should (string-match-p "c:1"
                                 (term-sessions-consult--annotate (car items))))))))
 
 (ert-deftest term-sessions-test-consult-current-project-stays-on-current-host ()

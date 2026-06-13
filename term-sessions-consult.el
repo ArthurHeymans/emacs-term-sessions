@@ -57,10 +57,10 @@ KEY-to-WIDTH values."
   "Return responsive Consult candidate column widths for TOTAL-WIDTH."
   (let* ((separators 6)
          (window-width (or total-width (max 80 (- (frame-width) 20))))
-         (budget (max 58 (- window-width separators)))
-         (base '((name 12 2 28)
-                 (where 10 2 26)
-                 (clients 7 0 7)
+         (budget (max 66 (- window-width separators)))
+         (base '((name 12 1 28)
+                 (where 10 1 24)
+                 (cwd 18 4 nil)
                  (command 20 5 nil)))
          (base-total (apply #'+ (mapcar #'cadr base))))
     (term-sessions-consult--distribute-extra-width
@@ -81,13 +81,13 @@ counter suffix so actions and annotations still resolve to the intended entry."
          (where (term-sessions--fit-column
                  (plist-get entry :where)
                  (term-sessions-consult--width widths 'where)))
-         (clients (term-sessions--fit-column
-                   (format "c:%s" (or (plist-get entry :clients) ""))
-                   (term-sessions-consult--width widths 'clients)))
+         (cwd (term-sessions--fit-column
+               (abbreviate-file-name (or (plist-get entry :cwd) ""))
+               (term-sessions-consult--width widths 'cwd)))
          (command (term-sessions--fit-column
                    (or (plist-get entry :command) "")
                    (term-sessions-consult--width widths 'command)))
-         (base (format "%s  %s  %s  %s" name where clients command))
+         (base (format "%s  %s  %s  %s" name where cwd command))
          (candidate base)
          (counter 2))
     (while (gethash candidate term-sessions-consult--entry-table)
@@ -121,17 +121,12 @@ counter suffix so actions and annotations still resolve to the intended entry."
                       (term-sessions-consult--entries))))
 
 (defun term-sessions-consult--annotate (candidate)
-  "Annotate CANDIDATE with cwd/project context and updated time.
-The running command is part of the candidate itself so it remains visible even
-when completion UIs reserve little room for annotations."
+  "Annotate CANDIDATE with compact client/project/update metadata.
+The candidate itself carries the high-value scan columns: name, host, cwd, and
+running command."
   (when-let ((entry (term-sessions-consult--entry candidate)))
-    (let* ((cwd-value (term-sessions--string-or-nil (plist-get entry :cwd)))
+    (let* ((clients (format "c:%s" (or (plist-get entry :clients) "")))
            (project-value (term-sessions--string-or-nil (plist-get entry :project)))
-           (cwd (term-sessions--fit-column
-                 (if cwd-value
-                     (format "cwd:%s" (abbreviate-file-name cwd-value))
-                   "")
-                 34))
            (project (term-sessions--fit-column
                      (if project-value (format "[%s]" project-value) "")
                      18))
@@ -139,11 +134,11 @@ when completion UIs reserve little room for annotations."
                                        (plist-get entry :updated))))
                         (format "updated:%s" updated)
                       "")))
-      (if (and (string-empty-p (string-trim cwd))
+      (if (and (string-empty-p clients)
                (string-empty-p (string-trim project))
                (string-empty-p updated))
           ""
-        (format "  %s  %s  %s" cwd project updated)))))
+        (format "  %s  %s  %s" clients project updated)))))
 
 (defun term-sessions-consult--open (candidate)
   "Open the session named by CANDIDATE."
