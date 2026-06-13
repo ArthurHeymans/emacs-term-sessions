@@ -171,9 +171,10 @@ session server and should not be listed twice."
 (defun term-sessions-list--directory-key (directory)
   "Return backend identity key for DIRECTORY.
 Remote zmx sessions are keyed by TRAMP prefix rather than localname, because
-`/rpc:host:/' and `/rpc:host:/some/cwd' query the same zmx server."
+`/rpc:host:/' and `/rpc:host:/some/cwd' query the same zmx server.  Local zmx
+sessions are likewise keyed to the local backend rather than to one cwd."
   (or (file-remote-p directory)
-      (expand-file-name directory)))
+      'local))
 
 (defun term-sessions-list--delete-duplicate-directories (directories)
   "Return DIRECTORIES with duplicate backend identities removed."
@@ -266,11 +267,30 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   (let ((entry (term-sessions-list--entry-at-point)))
     (if (stringp entry) default-directory (plist-get entry :directory))))
 
+(defun term-sessions-list--session-buffer-for-entry (name directory)
+  "Return an existing buffer for session NAME at DIRECTORY, or nil."
+  (let ((directory-key (term-sessions-list--directory-key directory))
+        found)
+    (dolist (buffer (buffer-list))
+      (with-current-buffer buffer
+        (when (and (null found)
+                   (equal term-sessions-current-name name)
+                   (eq term-sessions-current-backend term-sessions-backend)
+                   (equal (term-sessions-list--directory-key default-directory)
+                          directory-key))
+          (setq found buffer))))
+    found))
+
 (defun term-sessions-list-open ()
-  "Open session at point."
+  "Open session at point, reusing an existing session buffer when present."
   (interactive)
-  (let ((default-directory (term-sessions-list--directory-at-point)))
-    (term-sessions-open (term-sessions-list--name-at-point))))
+  (let* ((name (term-sessions-list--name-at-point))
+         (directory (term-sessions-list--directory-at-point))
+         (buffer (term-sessions-list--session-buffer-for-entry name directory)))
+    (if buffer
+        (pop-to-buffer buffer)
+      (let ((default-directory directory))
+        (term-sessions-open name)))))
 
 (defun term-sessions-list-kill ()
   "Kill session at point."

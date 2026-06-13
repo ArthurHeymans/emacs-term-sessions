@@ -340,5 +340,23 @@
                   '("/home/arthur/" "/ssh:example:/tmp/" "/ssh:example:/"))
                  '("/home/arthur/" "/ssh:example:/tmp/"))))
 
+(ert-deftest term-sessions-test-list-finds-existing-local-session-buffer ()
+  (let ((term-sessions-backend 'zmx))
+    (with-temp-buffer
+      (setq default-directory "/tmp/"
+            term-sessions-current-name "dev"
+            term-sessions-current-backend 'zmx)
+      (should (eq (term-sessions-list--session-buffer-for-entry "dev" "/home/arthur/")
+                  (current-buffer))))))
+
+(ert-deftest term-sessions-test-list-finds-existing-remote-session-buffer-by-prefix ()
+  (let ((term-sessions-backend 'zmx))
+    (with-temp-buffer
+      (setq default-directory "/rpc:example:/tmp/project/"
+            term-sessions-current-name "dev"
+            term-sessions-current-backend 'zmx)
+      (should (eq (term-sessions-list--session-buffer-for-entry "dev" "/rpc:example:/")
+                  (current-buffer))))))
+
 (provide 'term-sessions-tests)
 ;;; term-sessions-tests.el ends here
