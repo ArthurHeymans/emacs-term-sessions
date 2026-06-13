@@ -150,6 +150,13 @@ running command."
       (let ((default-directory directory))
         (term-sessions-open name)))))
 
+(defun term-sessions-consult--open-new (name)
+  "Create and open a new term session NAME in `default-directory'."
+  (let ((name (string-trim (substring-no-properties name))))
+    (when (string-empty-p name)
+      (user-error "No term session name"))
+    (term-sessions-open name)))
+
 (defun term-sessions-consult--local-p (entry)
   "Return non-nil when ENTRY is local."
   (not (file-remote-p (term-sessions--entry-directory entry))))
@@ -265,14 +272,18 @@ running command."
 
 ;;;###autoload
 (defun term-sessions-consult-session ()
-  "Select and open a term session with Consult multi-source narrowing."
+  "Select and open a term session with Consult multi-source narrowing.
+If the selected name does not match an existing session, create and open it in
+`default-directory'."
   (interactive)
   (unless (require 'consult nil t)
     (user-error "Install Consult to use `term-sessions-consult-session'"))
-  (consult--multi term-sessions-consult-sources
-                  :prompt "Term session: "
-                  :require-match t
-                  :sort nil))
+  (let ((selected (consult--multi term-sessions-consult-sources
+                                  :prompt "Term session: "
+                                  :require-match nil
+                                  :sort nil)))
+    (unless (plist-get (cdr selected) :match)
+      (term-sessions-consult--open-new (car selected)))))
 
 (provide 'term-sessions-consult)
 ;;; term-sessions-consult.el ends here

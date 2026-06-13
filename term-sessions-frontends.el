@@ -3,7 +3,7 @@
 
 ;;; Commentary:
 
-;; Terminal frontend adapters and open/start commands.
+;; Terminal frontend adapters and open commands.
 
 ;;; Code:
 
@@ -249,44 +249,54 @@ COMMAND is the optional zmx creation command for missing sessions."
       (term-sessions--install-ghostel-title-tracking name buffer-name)
       (rename-buffer buffer-name t))))
 
-(defun term-sessions--read-existing-session-entry (&optional prompt)
-  "Read an existing session entry, including already-open TRAMP remotes."
+(defun term-sessions--read-session-entry (&optional prompt require-existing)
+  "Read a session entry, including already-open TRAMP remotes.
+When REQUIRE-EXISTING is non-nil, require the selected session to exist.
+Otherwise, a non-matching name creates a new entry in `default-directory', like
+`find-file' does for files."
   (if (and (fboundp 'term-sessions-list--query-directory)
            (fboundp 'term-sessions-list--local-directory)
            (fboundp 'term-sessions-list--delete-duplicate-directories))
       (progn
         (clrhash term-sessions--completion-entry-table)
         (let* ((directories
-              (term-sessions-list--delete-duplicate-directories
-               (append (list (term-sessions-list--local-directory))
-                       (term-sessions-list--session-buffer-directories)
-                       (term-sessions-list--open-remote-directories))))
-             (entries (mapcar #'car
-                              (apply #'append
-                                     (mapcar #'term-sessions-list--query-directory
-                                             directories))))
-             (candidates
-              (mapcar (lambda (entry)
-                        (term-sessions--register-completion-entry
-                         (format "%s @ %s %s"
-                                 (plist-get entry :name)
-                                 (plist-get entry :where)
-                                 (abbreviate-file-name
-                                  (or (plist-get entry :cwd) "")))
-                         entry))
-                      entries))
-             (table (lambda (string predicate action)
-                      (if (eq action 'metadata)
-                          `(metadata
-                            (category . term-session)
-                            (annotation-function . term-sessions--completion-annotate))
-                        (complete-with-action action candidates string predicate))))
-             (selected (completing-read (or prompt "Session: ") table nil t
-                                        nil 'term-sessions-name-history)))
+                (term-sessions-list--delete-duplicate-directories
+                 (append (list (term-sessions-list--local-directory))
+                         (term-sessions-list--session-buffer-directories)
+                         (term-sessions-list--open-remote-directories))))
+               (entries (mapcar #'car
+                                (apply #'append
+                                       (mapcar #'term-sessions-list--query-directory
+                                               directories))))
+               (candidates
+                (mapcar (lambda (entry)
+                          (term-sessions--register-completion-entry
+                           (format "%s @ %s %s"
+                                   (plist-get entry :name)
+                                   (plist-get entry :where)
+                                   (abbreviate-file-name
+                                    (or (plist-get entry :cwd) "")))
+                           entry))
+                        entries))
+               (table (lambda (string predicate action)
+                        (if (eq action 'metadata)
+                            `(metadata
+                              (category . term-session)
+                              (annotation-function . term-sessions--completion-annotate))
+                          (complete-with-action action candidates string predicate))))
+               (selected (completing-read (or prompt "Session: ") table nil require-existing
+                                          nil 'term-sessions-name-history)))
           (or (term-sessions--completion-entry selected)
+              (and (not require-existing)
+                   (list :name (substring-no-properties selected)
+                         :directory default-directory))
               (user-error "No term session selected"))))
-    (list :name (term-sessions--read-name prompt t)
+    (list :name (term-sessions--read-name prompt require-existing)
           :directory default-directory)))
+
+(defun term-sessions--read-existing-session-entry (&optional prompt)
+  "Read an existing session entry, including already-open TRAMP remotes."
+  (term-sessions--read-session-entry prompt t))
 
 (defun term-sessions-open-with-frontend (name &optional command frontend allow-create)
   "Open zmx session NAME with optional creation COMMAND in FRONTEND.
@@ -310,7 +320,7 @@ session to already exist according to zmx in the entry/current directory."
            (location (term-sessions-spec-location spec))
            (transport (term-sessions--ensure-interactive-attach-supported location frontend)))
       (unless (or allow-create (term-sessions--active-p name))
-        (user-error "No active zmx session named `%s'; use `term-sessions-start' to create it" name))
+        (user-error "No active zmx session named `%s'" name))
     (let* ((buffer-name (term-sessions--buffer-name-for-spec spec))
            (requested-transport term-sessions-attach-transport)
            (attach-command (unless (eq transport 'tramp-process)
@@ -344,23 +354,16 @@ session to already exist according to zmx in the entry/current directory."
           name attach-command frontend buffer-name spec)))))))
 
 ;;;###autoload
-(defun term-sessions-start (name &optional command)
-  "Create or open persistent zmx session NAME.
-With prefix argument, prompt for COMMAND to run when the session is created.
-Without COMMAND, zmx starts a login shell."
+(defun term-sessions-open (name &optional command)
+  "Open persistent zmx session NAME, creating it when missing.
+NAME may also be a session entry plist with a `:directory'.  With prefix
+argument, prompt for COMMAND to run when the session is created.  Without
+COMMAND, zmx starts a login shell for new sessions."
   (interactive
-   (list (term-sessions--read-name "Start/open session: " nil)
+   (list (term-sessions--read-session-entry "Open session: " nil)
          (when current-prefix-arg
            (read-string "Command for new session: " nil 'term-sessions-command-history))))
   (term-sessions-open-with-frontend name command term-sessions-preferred-frontend t))
-
-;;;###autoload
-(defun term-sessions-open (name)
-  "Open existing zmx session NAME.
-NAME may also be a session entry plist with a `:directory'.  This command does
-not create sessions; use `term-sessions-start' for create-or-attach behavior."
-  (interactive (list (term-sessions--read-existing-session-entry "Open session: ")))
-  (term-sessions-open-with-frontend name nil term-sessions-preferred-frontend nil))
 
 (provide 'term-sessions-frontends)
 ;;; term-sessions-frontends.el ends here

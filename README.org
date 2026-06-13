@@ -44,7 +44,7 @@ This is a greenfield package.  The =zmx= backend is implemented first.  The API 
 
 Implemented pieces include:
 
-- start/open/list/kill commands
+- open/list/kill commands
 - history, send, run, and wait commands
 - local frontend adapters for =vterm=, =eat=, =ghostel=, =term=, and =shell=
 - TRAMP-aware noninteractive/control operations
@@ -80,8 +80,7 @@ Choose a terminal frontend:
 
 Then run:
 
-- =M-x term-sessions-start= — create or attach to a session
-- =M-x term-sessions-open= — attach to an existing session
+- =M-x term-sessions-open= — open an existing session, or create it when the name does not match
 - =M-x term-sessions-list= — browse sessions
 - =M-x term-sessions-kill= — kill a session
 
@@ -96,7 +95,7 @@ Additional commands:
 - =M-x term-sessions-wait-async=
 - =M-x term-sessions-store-org-link=
 
-=term-sessions-start= creates-or-attaches.  =term-sessions-open= only opens existing sessions.
+=term-sessions-open= behaves like =find-file=: choose an existing completion to reopen it, or type a new name to create and attach to it.
 
 * Remote and TRAMP behavior
 
@@ -166,7 +165,7 @@ The package is split by responsibility:
 - =term-sessions-core.el=: shared custom variables, structs, and helpers
 - =term-sessions-zmx.el=: zmx backend/control commands
 - =term-sessions-tramp.el=: TRAMP location parsing, session specs, attach transport selection
-- =term-sessions-frontends.el=: terminal frontend adapters and open/start commands
+- =term-sessions-frontends.el=: terminal frontend adapters and open commands
 - =term-sessions-org.el=: Org link store/follow
 - =term-sessions-list.el=: tabulated list UI
 
