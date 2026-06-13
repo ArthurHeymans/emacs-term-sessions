@@ -38,6 +38,9 @@ Currently only `zmx' is implemented."
 (defvar term-sessions-name-history nil)
 (defvar term-sessions-command-history nil)
 
+(defvar term-sessions--completion-entry-table (make-hash-table :test #'equal)
+  "Recently offered completion candidates keyed by display string.")
+
 (defvar-local term-sessions-current-name nil)
 (defvar-local term-sessions-current-backend nil)
 (defvar-local term-sessions-current-spec nil)
@@ -127,6 +130,35 @@ sessions are likewise keyed to the local backend rather than to one cwd."
                           directory-key))
           (setq found buffer))))
     found))
+
+(defun term-sessions--entry-name (entry)
+  "Return session name from ENTRY."
+  (cond
+   ((stringp entry) entry)
+   ((consp entry) (plist-get entry :name))
+   (t nil)))
+
+(defun term-sessions--entry-directory (entry)
+  "Return backend directory from ENTRY, defaulting to `default-directory'."
+  (or (and (consp entry) (plist-get entry :directory))
+      default-directory))
+
+(defun term-sessions--register-completion-entry (candidate entry)
+  "Remember that CANDIDATE names ENTRY for completion actions."
+  (puthash (substring-no-properties candidate)
+           entry
+           term-sessions--completion-entry-table)
+  candidate)
+
+(defun term-sessions--completion-entry (candidate)
+  "Return session entry associated with CANDIDATE.
+Falls back to treating CANDIDATE as a session name in `default-directory'."
+  (or (and (stringp candidate)
+           (gethash (substring-no-properties candidate)
+                    term-sessions--completion-entry-table))
+      (and (stringp candidate)
+           (list :name (substring-no-properties candidate)
+                 :directory default-directory))))
 
 (provide 'term-sessions-core)
 ;;; term-sessions-core.el ends here

@@ -225,12 +225,62 @@ Fields include at least :name, and may include :pid, :clients, :created,
   "Return non-nil when zmx session NAME is active."
   (member name (term-sessions--zmx-list-names)))
 
+(defun term-sessions--completion-entry-for-session (session &optional directory)
+  "Return a completion/action entry for zmx SESSION at DIRECTORY."
+  (list :name (plist-get session :name)
+        :directory (or directory default-directory)
+        :session session
+        :cwd (or (plist-get session :cwd)
+                 (plist-get session :start_dir)
+                 "")
+        :command (or (plist-get session :current-cmd)
+                     (plist-get session :cmd)
+                     "")
+        :clients (or (plist-get session :clients) "")
+        :updated-time (plist-get session :updated-time)))
+
+(defun term-sessions--completion-annotate (candidate)
+  "Return annotation string for session CANDIDATE."
+  (when-let ((entry (term-sessions--completion-entry candidate)))
+    (let ((cwd (or (plist-get entry :cwd) ""))
+          (command (or (plist-get entry :command) ""))
+          (clients (or (plist-get entry :clients) "")))
+      (concat
+       (when (not (string-empty-p clients))
+         (format "  clients:%s" clients))
+       (when (not (string-empty-p cwd))
+         (format "  %s" (abbreviate-file-name cwd)))
+       (when (not (string-empty-p command))
+         (format "  %s" command))))))
+
+(defun term-sessions--session-completion-table (&optional sessions directory)
+  "Return a completion table for SESSIONS at DIRECTORY.
+The table advertises the `term-session' completion category for Embark and
+other category-aware completion UIs."
+  (clrhash term-sessions--completion-entry-table)
+  (let* ((directory (or directory default-directory))
+         (entries (mapcar (lambda (session)
+                            (term-sessions--completion-entry-for-session
+                             session directory))
+                          (or sessions (term-sessions--zmx-list-sessions))))
+         (candidates
+          (mapcar (lambda (entry)
+                    (term-sessions--register-completion-entry
+                     (plist-get entry :name) entry))
+                  entries)))
+    (lambda (string predicate action)
+      (if (eq action 'metadata)
+          `(metadata
+            (category . term-session)
+            (annotation-function . term-sessions--completion-annotate))
+        (complete-with-action action candidates string predicate)))))
+
 (defun term-sessions--read-name (&optional prompt require-existing)
   "Read a session name with PROMPT.
 When REQUIRE-EXISTING is non-nil, complete against active sessions."
   (let ((prompt (or prompt "Session: ")))
     (if require-existing
-        (completing-read prompt (term-sessions--zmx-list-names)
+        (completing-read prompt (term-sessions--session-completion-table)
                          nil t nil 'term-sessions-name-history)
       (read-string prompt nil 'term-sessions-name-history))))
 

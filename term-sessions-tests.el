@@ -59,7 +59,8 @@
     (should-not (term-sessions--active-p "missing"))))
 
 (ert-deftest term-sessions-test-org-link-roundtrip-special-name ()
-  (let* ((term-sessions-current-time-function (lambda () 0))
+  (let* ((term-sessions-preferred-frontend 'term)
+         (term-sessions-current-time-function (lambda () 0))
          (link (term-sessions--org-link 'zmx "dev:box"))
          (components (term-sessions--org-path-components
                       (substring link (length "term-session:")))))
@@ -289,7 +290,8 @@
       (kill-buffer buffer))))
 
 (ert-deftest term-sessions-test-org-babel-opens-active-session-without-buffer ()
-  (let ((term-sessions-org-babel-use-zmx-send-when-no-buffer nil)
+  (let ((term-sessions-preferred-frontend 'term)
+        (term-sessions-org-babel-use-zmx-send-when-no-buffer nil)
         opened scheduled sent)
     (cl-letf (((symbol-function 'term-sessions--active-p)
                (lambda (name) (equal name "dev")))
@@ -307,6 +309,7 @@
 
 (ert-deftest term-sessions-test-org-babel-opens-active-remote-session-with-remote-directory ()
   (let ((default-directory "/ssh:user@example:/tmp/project/")
+        (term-sessions-preferred-frontend 'term)
         (term-sessions-org-babel-use-zmx-send-when-no-buffer nil)
         opened-directory
         scheduled-directory
@@ -528,6 +531,115 @@
             term-sessions-current-backend 'zmx)
       (should (eq (term-sessions-list--session-buffer-for-entry "dev" "/rpc:example:/")
                   (current-buffer))))))
+
+(ert-deftest term-sessions-test-completion-table-registers-term-session-category ()
+  (clrhash term-sessions--completion-entry-table)
+  (let ((default-directory "/tmp/"))
+    (cl-letf (((symbol-function 'term-sessions--zmx-list-sessions)
+               (lambda ()
+                 '((:name "dev" :clients "1" :cwd "/tmp/project" :current-cmd "nvim")))))
+      (let ((table (term-sessions--session-completion-table)))
+        (should (equal (all-completions "d" table) '("dev")))
+        (should (eq (cdr (assq 'category (completion-metadata "" table nil)))
+                    'term-session))
+        (should (string-match-p "clients:1" (term-sessions--completion-annotate "dev")))
+        (should (equal (plist-get (term-sessions--completion-entry "dev") :cwd)
+                       "/tmp/project"))))))
+
+(ert-deftest term-sessions-test-list-narrowing-filters-name-client-and-recency ()
+  (let* ((now (float-time))
+         (dev (list :name "dev" :directory "/tmp/" :where "local"
+                    :clients "1" :cwd "/tmp/project" :project "project"
+                    :command "nvim" :updated-raw (- now 60)))
+         (logs (list :name "logs" :directory "/ssh:host:/" :where "ssh:host"
+                     :clients "0" :cwd "/var/log" :project "log"
+                     :command "tail" :updated-raw (- now 7200)))
+         (rows (list (list dev []) (list logs []))))
+    (with-temp-buffer
+      (term-sessions-list-mode)
+      (let ((term-sessions-list--narrow-criteria
+             (list (cons "Name: dev"
+                         (lambda (entries)
+                           (seq-filter (lambda (row)
+                                         (string-match-p "dev" (plist-get (car row) :name)))
+                                       entries)))
+                   (cons "Attached"
+                         (lambda (entries)
+                           (seq-filter (lambda (row)
+                                         (> (term-sessions-list--clients-number
+                                             (plist-get (car row) :clients))
+                                            0))
+                                       entries)))
+                   (cons "Recent"
+                         (lambda (entries)
+                           (seq-filter (lambda (row)
+                                         (< (- now (term-sessions-list--updated-seconds (car row)))
+                                            3600))
+                                       entries))))))
+        (should (equal (mapcar (lambda (row) (plist-get (car row) :name))
+                               (term-sessions-list--filtered-entries rows))
+                       '("dev")))))))
+
+(ert-deftest term-sessions-test-list-marked-or-current-selection ()
+  (let ((entry (list :name "dev" :directory "/tmp/")))
+    (with-temp-buffer
+      (term-sessions-list-mode)
+      (cl-letf (((symbol-function 'term-sessions-list--entry-at-point)
+                 (lambda () entry)))
+        (should (equal (term-sessions-list--selected-entries) (list entry)))
+        (setq term-sessions-list--marked-entries (list entry))
+        (should (equal (term-sessions-list--selected-entries) (list entry)))))))
+
+(ert-deftest term-sessions-test-list-stable-mark-key-survives-updated-fields ()
+  (let ((old (list :name "dev" :directory "/tmp/" :clients "0" :updated "old"))
+        (new (list :name "dev" :directory "/tmp/" :clients "2" :updated "new")))
+    (with-temp-buffer
+      (term-sessions-list-mode)
+      (setq term-sessions-list--marked-entries (list old))
+      (should (term-sessions-list--entry-marked-p new)))))
+
+(ert-deftest term-sessions-test-list-narrowing-prefix-does-not-shadow-next-line ()
+  (should (eq (lookup-key term-sessions-list-mode-map (kbd "n")) 'next-line))
+  (should (eq (lookup-key term-sessions-list-mode-map (kbd "/ n"))
+              'term-sessions-list-narrow-name)))
+
+(ert-deftest term-sessions-test-consult-items-filter-and-register-entry ()
+  (clrhash term-sessions--completion-entry-table)
+  (let ((local (list :name "dev" :directory "/tmp/" :where "local"
+                     :clients "1" :cwd "/tmp/project" :project "project"
+                     :command "nvim" :updated "2026-01-01"))
+        (remote (list :name "prod" :directory "/ssh:host:/" :where "ssh:host"
+                      :clients "0" :cwd "/srv" :project "srv"
+                      :command "bash" :updated "2026-01-01")))
+    (cl-letf (((symbol-function 'term-sessions-consult--entries)
+               (lambda () (list local remote))))
+      (let ((items (term-sessions-consult--items #'term-sessions-consult--local-p)))
+        (should (= (length items) 1))
+        (should (string-match-p "dev @ local" (car items)))
+        (should (equal (plist-get (term-sessions--completion-entry (car items)) :name)
+                       "dev"))
+        (should (string-match-p "clients:1"
+                                (term-sessions-consult--annotate (car items))))))))
+
+(ert-deftest term-sessions-test-consult-current-project-stays-on-current-host ()
+  (let ((default-directory "/ssh:host:/repo/")
+        (same-host (list :name "same" :directory "/rpc:host:/" :cwd "/repo/sub"))
+        (other-host (list :name "other" :directory "/ssh:other:/" :cwd "/repo/sub"))
+        (local (list :name "local" :directory "/tmp/" :cwd "/repo/sub")))
+    (should (term-sessions-consult--current-project-p same-host))
+    (should-not (term-sessions-consult--current-project-p other-host))
+    (should-not (term-sessions-consult--current-project-p local))))
+
+(ert-deftest term-sessions-test-consult-sources-have-names ()
+  (dolist (source term-sessions-consult-sources)
+    (should (plist-get (symbol-value source) :name))))
+
+(ert-deftest term-sessions-test-action-copy-name-decodes-registered-candidate ()
+  (let ((candidate "dev @ local /tmp/project"))
+    (term-sessions--register-completion-entry
+     candidate (list :name "dev" :directory "/tmp/"))
+    (term-sessions-action-copy-name candidate)
+    (should (equal (current-kill 0 t) "dev"))))
 
 (provide 'term-sessions-tests)
 ;;; term-sessions-tests.el ends here

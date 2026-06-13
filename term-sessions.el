@@ -26,6 +26,8 @@
 (require 'term-sessions-frontends)
 (require 'term-sessions-org)
 (require 'term-sessions-list)
+(require 'term-sessions-actions)
+(require 'term-sessions-consult)
 
 (provide 'term-sessions)
 ;;; term-sessions.el ends here
