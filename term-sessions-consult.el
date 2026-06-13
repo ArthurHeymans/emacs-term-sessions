@@ -32,12 +32,67 @@
 (defvar term-sessions-consult--entry-table (make-hash-table :test #'equal)
   "Session entries keyed by Consult candidate string.")
 
+(defun term-sessions-consult--distribute-extra-width (columns extra)
+  "Add EXTRA display cells to COLUMNS.
+COLUMNS is a list of (KEY WIDTH WEIGHT MAX-WIDTH).  Return an alist of
+KEY-to-WIDTH values."
+  (let ((columns (mapcar #'copy-sequence columns))
+        changed)
+    (while (> extra 0)
+      (setq changed nil)
+      (dolist (column columns)
+        (pcase-let ((`(,_key ,width ,weight ,max-width) column))
+          (dotimes (_ weight)
+            (when (and (> extra 0)
+                       (or (null max-width) (< width max-width)))
+              (setcar (cdr column) (1+ width))
+              (setq width (1+ width)
+                    extra (1- extra)
+                    changed t)))))
+      (unless changed
+        (setq extra 0)))
+    (mapcar (lambda (column) (cons (car column) (cadr column))) columns)))
+
+(defun term-sessions-consult--column-widths (&optional total-width)
+  "Return responsive Consult candidate column widths for TOTAL-WIDTH."
+  (let* ((separators 6)
+         (window-width (or total-width (max 80 (- (frame-width) 20))))
+         (budget (max 58 (- window-width separators)))
+         (base '((name 12 2 28)
+                 (where 10 2 26)
+                 (clients 7 0 7)
+                 (cwd 20 5 nil)))
+         (base-total (apply #'+ (mapcar #'cadr base))))
+    (term-sessions-consult--distribute-extra-width
+     base (max 0 (- budget base-total)))))
+
+(defun term-sessions-consult--width (widths key)
+  "Return WIDTHS value for KEY."
+  (or (alist-get key widths) 10))
+
 (defun term-sessions-consult--display (entry)
-  "Return display candidate for ENTRY."
-  (let* ((name (plist-get entry :name))
-         (where (plist-get entry :where))
-         (cwd (or (plist-get entry :cwd) ""))
-         (candidate (format "%s @ %s %s" name where (abbreviate-file-name cwd))))
+  "Return aligned display candidate for ENTRY.
+When two entries truncate to the same display string, append a small visible
+counter suffix so actions and annotations still resolve to the intended entry."
+  (let* ((widths (term-sessions-consult--column-widths))
+         (name (term-sessions--fit-column
+                (plist-get entry :name)
+                (term-sessions-consult--width widths 'name)))
+         (where (term-sessions--fit-column
+                 (plist-get entry :where)
+                 (term-sessions-consult--width widths 'where)))
+         (clients (term-sessions--fit-column
+                   (format "c:%s" (or (plist-get entry :clients) ""))
+                   (term-sessions-consult--width widths 'clients)))
+         (cwd (term-sessions--fit-column
+               (abbreviate-file-name (or (plist-get entry :cwd) ""))
+               (term-sessions-consult--width widths 'cwd)))
+         (base (format "%s  %s  %s  %s" name where clients cwd))
+         (candidate base)
+         (counter 2))
+    (while (gethash candidate term-sessions-consult--entry-table)
+      (setq candidate (format "%s  #%d" base counter)
+            counter (1+ counter)))
     (puthash candidate entry term-sessions-consult--entry-table)
     (term-sessions--register-completion-entry candidate entry)))
 
@@ -66,17 +121,26 @@
                       (term-sessions-consult--entries))))
 
 (defun term-sessions-consult--annotate (candidate)
-  "Annotate CANDIDATE with clients, project, command, and updated time."
+  "Annotate CANDIDATE with aligned project, updated time, and command."
   (when-let ((entry (term-sessions-consult--entry candidate)))
-    (let ((clients (or (plist-get entry :clients) ""))
-          (project (or (plist-get entry :project) ""))
-          (command (or (plist-get entry :command) ""))
-          (updated (or (plist-get entry :updated) "")))
-      (concat
-       (unless (string-empty-p clients) (format "  clients:%s" clients))
-       (unless (string-empty-p project) (format "  [%s]" project))
-       (unless (string-empty-p updated) (format "  updated:%s" updated))
-       (unless (string-empty-p command) (format "  %s" command))))))
+    (let ((project (term-sessions--fit-column
+                    (if-let ((project (term-sessions--string-or-nil
+                                       (plist-get entry :project))))
+                        (format "[%s]" project)
+                      "")
+                    18))
+          (updated (term-sessions--fit-column
+                    (if-let ((updated (term-sessions--string-or-nil
+                                       (plist-get entry :updated))))
+                        (format "updated:%s" updated)
+                      "")
+                    25))
+          (command (or (plist-get entry :command) "")))
+      (if (and (string-empty-p (string-trim project))
+               (string-empty-p (string-trim updated))
+               (string-empty-p command))
+          ""
+        (format "  %s  %s  %s" project updated command)))))
 
 (defun term-sessions-consult--open (candidate)
   "Open the session named by CANDIDATE."

@@ -108,6 +108,16 @@ Currently only `zmx' is implemented."
   (when (and value (not (string-empty-p value)))
     value))
 
+(defun term-sessions--fit-column (value width &optional ellipsis)
+  "Return VALUE truncated or padded to display WIDTH.
+ELLIPSIS defaults to a single-character ellipsis.  Text properties are not
+preserved; callers should add faces/properties after fitting if needed."
+  (let* ((ellipsis (or ellipsis "…"))
+         (string (format "%s" (or value "")))
+         (truncated (truncate-string-to-width string width nil nil ellipsis))
+         (padding (- width (string-width truncated))))
+    (concat truncated (make-string (max 0 padding) ? ))))
+
 (defun term-sessions--directory-key (directory)
   "Return backend identity key for DIRECTORY.
 Remote zmx sessions are keyed by TRAMP prefix rather than localname, because

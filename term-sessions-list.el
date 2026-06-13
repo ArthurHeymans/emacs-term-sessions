@@ -86,15 +86,8 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
 
 (define-derived-mode term-sessions-list-mode tabulated-list-mode "Term-Sessions"
   "Major mode for listing persistent terminal sessions."
-  (setq tabulated-list-format [("Name" 28 t)
-                               ("Where" 24 t)
-                               ("Project" 18 t)
-                               ("Created" 17 t)
-                               ("Updated" 17 t)
-                               ("Clients" 7 t)
-                               ("Cwd" 34 t)
-                               ("Command" 40 t)])
   (setq tabulated-list-padding 2)
+  (term-sessions-list--update-format)
   (setq imenu-create-index-function #'term-sessions-list-imenu-index)
   (setq-local revert-buffer-function #'term-sessions-list-revert)
   (setq-local eldoc-echo-area-use-multiline-p t)
@@ -102,7 +95,67 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
   (setq-local mode-line-position '((:eval (term-sessions-list--mode-line-indicator))))
   (hl-line-mode 1)
   (add-hook 'eldoc-documentation-functions #'term-sessions-list-eldoc nil t)
-  (add-hook 'tabulated-list-revert-hook #'term-sessions-list-refresh nil t)
+  (add-hook 'tabulated-list-revert-hook #'term-sessions-list-refresh nil t))
+
+(defun term-sessions-list--distribute-extra-width (columns extra)
+  "Add EXTRA display cells to COLUMNS.
+COLUMNS is a list of (KEY WIDTH WEIGHT MAX-WIDTH).  Return an alist of
+KEY-to-WIDTH values."
+  (let ((columns (mapcar #'copy-sequence columns))
+        changed)
+    (while (> extra 0)
+      (setq changed nil)
+      (dolist (column columns)
+        (pcase-let ((`(,_key ,width ,weight ,max-width) column))
+          (dotimes (_ weight)
+            (when (and (> extra 0)
+                       (or (null max-width) (< width max-width)))
+              (setcar (cdr column) (1+ width))
+              (setq width (1+ width)
+                    extra (1- extra)
+                    changed t)))))
+      (unless changed
+        (setq extra 0)))
+    (mapcar (lambda (column) (cons (car column) (cadr column))) columns)))
+
+(defun term-sessions-list--column-widths (&optional total-width)
+  "Return responsive column widths for TOTAL-WIDTH or the selected window."
+  (let* ((padding 2)
+         (window-width (or total-width (window-body-width) 100))
+         (budget (max 80 (- window-width (* padding 7))))
+         (fixed-width (+ 16 16 7))
+         (variable-budget (max 44 (- budget fixed-width)))
+         (base '((name 12 2 32)
+                 (where 8 2 28)
+                 (project 6 1 24)
+                 (cwd 10 4 nil)
+                 (command 8 5 nil)))
+         (base-total (apply #'+ (mapcar #'cadr base))))
+    (append (term-sessions-list--distribute-extra-width
+             base (max 0 (- variable-budget base-total)))
+            '((created . 16)
+              (updated . 16)
+              (clients . 7)))))
+
+(defun term-sessions-list--width (widths key)
+  "Return WIDTHS value for KEY."
+  (or (alist-get key widths) 10))
+
+(defun term-sessions-list--format (&optional total-width)
+  "Return a `tabulated-list-format' scaled for TOTAL-WIDTH."
+  (let ((widths (term-sessions-list--column-widths total-width)))
+    (vector (list "Name" (term-sessions-list--width widths 'name) t)
+            (list "Where" (term-sessions-list--width widths 'where) t)
+            (list "Project" (term-sessions-list--width widths 'project) t)
+            (list "Created" (term-sessions-list--width widths 'created) t)
+            (list "Updated" (term-sessions-list--width widths 'updated) t)
+            (list "Clients" (term-sessions-list--width widths 'clients) t)
+            (list "Cwd" (term-sessions-list--width widths 'cwd) t)
+            (list "Command" (term-sessions-list--width widths 'command) t))))
+
+(defun term-sessions-list--update-format ()
+  "Update `tabulated-list-format' for the current window width."
+  (setq tabulated-list-format (term-sessions-list--format))
   (tabulated-list-init-header))
 
 (defun term-sessions-list--time-string (time-or-seconds)
@@ -391,6 +444,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
 (defun term-sessions-list-revert (&rest _ignore)
   "Refresh and reprint the current term session list."
   (interactive)
+  (term-sessions-list--update-format)
   (term-sessions-list-refresh)
   (tabulated-list-print t)
   (term-sessions-list--restore-marks))
@@ -420,6 +474,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
     (with-current-buffer buffer
       (setq default-directory (term-sessions-list--local-directory))
       (term-sessions-list-mode)
+      (term-sessions-list--update-format)
       (term-sessions-list-refresh)
       (tabulated-list-print t)
       (term-sessions-list--restore-marks))
@@ -455,6 +510,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
 
 (defun term-sessions-list--reprint ()
   "Reprint current entries and restore marks."
+  (term-sessions-list--update-format)
   (setq tabulated-list-entries
         (term-sessions-list--filtered-entries term-sessions-list--all-entries))
   (tabulated-list-print t)

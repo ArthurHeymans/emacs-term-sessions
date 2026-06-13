@@ -589,6 +589,12 @@
       (should (eq (term-sessions-list--session-buffer-for-entry "dev" "/rpc:example:/")
                   (current-buffer))))))
 
+(ert-deftest term-sessions-test-fit-column-pads-and-truncates ()
+  (should (equal (term-sessions--fit-column "dev" 5) "dev  "))
+  (should (equal (string-width (term-sessions--fit-column "development" 5)) 5))
+  (should (string-suffix-p "…" (string-trim-right
+                                 (term-sessions--fit-column "development" 5)))))
+
 (ert-deftest term-sessions-test-completion-table-registers-term-session-category ()
   (clrhash term-sessions--completion-entry-table)
   (let ((default-directory "/tmp/"))
@@ -602,6 +608,14 @@
         (should (string-match-p "clients:1" (term-sessions--completion-annotate "dev")))
         (should (equal (plist-get (term-sessions--completion-entry "dev") :cwd)
                        "/tmp/project"))))))
+
+(ert-deftest term-sessions-test-list-column-widths-scale-with-window ()
+  (let ((narrow (term-sessions-list--column-widths 100))
+        (wide (term-sessions-list--column-widths 180)))
+    (should (> (alist-get 'cwd wide) (alist-get 'cwd narrow)))
+    (should (> (alist-get 'command wide) (alist-get 'command narrow)))
+    (should (= (alist-get 'clients narrow) 7))
+    (should (= (alist-get 'clients wide) 7))))
 
 (ert-deftest term-sessions-test-list-narrowing-filters-name-client-and-recency ()
   (let* ((now (float-time))
@@ -660,6 +674,41 @@
   (should (eq (lookup-key term-sessions-list-mode-map (kbd "/ n"))
               'term-sessions-list-narrow-name)))
 
+(ert-deftest term-sessions-test-consult-display-aligns-columns ()
+  (clrhash term-sessions--completion-entry-table)
+  (clrhash term-sessions-consult--entry-table)
+  (cl-letf (((symbol-function 'frame-width) (lambda (&optional _frame) 100)))
+    (let* ((entry (list :name "dev" :directory "/tmp/" :where "local"
+                        :clients "1" :cwd "/tmp/project" :project "project"
+                        :command "nvim" :updated "2026-01-01"))
+           (candidate (term-sessions-consult--display entry)))
+      (should (string-match-p "\\`dev +local +c:1 +/tmp/project" candidate))
+      (should (equal (plist-get (term-sessions--completion-entry candidate) :name)
+                     "dev"))
+      (should (string-match-p "\\[project\\]"
+                              (term-sessions-consult--annotate candidate)))
+      (should (string-match-p "updated:2026-01-01"
+                              (term-sessions-consult--annotate candidate))))))
+
+(ert-deftest term-sessions-test-consult-display-disambiguates-truncated-collisions ()
+  (clrhash term-sessions--completion-entry-table)
+  (clrhash term-sessions-consult--entry-table)
+  (cl-letf (((symbol-function 'frame-width) (lambda (&optional _frame) 80)))
+    (let* ((first (list :name "development-alpha" :directory "/tmp/one"
+                        :where "local" :clients "0"
+                        :cwd "/very/long/path/that/truncates/one"))
+           (second (list :name "development-alpha" :directory "/tmp/two"
+                         :where "local" :clients "0"
+                         :cwd "/very/long/path/that/truncates/one"))
+           (first-candidate (term-sessions-consult--display first))
+           (second-candidate (term-sessions-consult--display second)))
+      (should-not (equal first-candidate second-candidate))
+      (should (string-suffix-p "#2" second-candidate))
+      (should (equal (plist-get (term-sessions-consult--entry first-candidate) :directory)
+                     "/tmp/one"))
+      (should (equal (plist-get (term-sessions-consult--entry second-candidate) :directory)
+                     "/tmp/two")))))
+
 (ert-deftest term-sessions-test-consult-items-filter-and-register-entry ()
   (clrhash term-sessions--completion-entry-table)
   (let ((local (list :name "dev" :directory "/tmp/" :where "local"
@@ -669,13 +718,14 @@
                       :clients "0" :cwd "/srv" :project "srv"
                       :command "bash" :updated "2026-01-01")))
     (cl-letf (((symbol-function 'term-sessions-consult--entries)
-               (lambda () (list local remote))))
+               (lambda () (list local remote)))
+              ((symbol-function 'frame-width) (lambda (&optional _frame) 100)))
       (let ((items (term-sessions-consult--items #'term-sessions-consult--local-p)))
         (should (= (length items) 1))
-        (should (string-match-p "dev @ local" (car items)))
+        (should (string-match-p "\\`dev +local +c:1 +/tmp/project" (car items)))
         (should (equal (plist-get (term-sessions--completion-entry (car items)) :name)
                        "dev"))
-        (should (string-match-p "clients:1"
+        (should (string-match-p "\\[project\\]"
                                 (term-sessions-consult--annotate (car items))))))))
 
 (ert-deftest term-sessions-test-consult-current-project-stays-on-current-host ()
