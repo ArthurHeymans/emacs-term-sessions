@@ -61,7 +61,7 @@ KEY-to-WIDTH values."
          (base '((name 12 2 28)
                  (where 10 2 26)
                  (clients 7 0 7)
-                 (cwd 20 5 nil)))
+                 (command 20 5 nil)))
          (base-total (apply #'+ (mapcar #'cadr base))))
     (term-sessions-consult--distribute-extra-width
      base (max 0 (- budget base-total)))))
@@ -84,10 +84,10 @@ counter suffix so actions and annotations still resolve to the intended entry."
          (clients (term-sessions--fit-column
                    (format "c:%s" (or (plist-get entry :clients) ""))
                    (term-sessions-consult--width widths 'clients)))
-         (cwd (term-sessions--fit-column
-               (abbreviate-file-name (or (plist-get entry :cwd) ""))
-               (term-sessions-consult--width widths 'cwd)))
-         (base (format "%s  %s  %s  %s" name where clients cwd))
+         (command (term-sessions--fit-column
+                   (or (plist-get entry :command) "")
+                   (term-sessions-consult--width widths 'command)))
+         (base (format "%s  %s  %s  %s" name where clients command))
          (candidate base)
          (counter 2))
     (while (gethash candidate term-sessions-consult--entry-table)
@@ -121,26 +121,29 @@ counter suffix so actions and annotations still resolve to the intended entry."
                       (term-sessions-consult--entries))))
 
 (defun term-sessions-consult--annotate (candidate)
-  "Annotate CANDIDATE with aligned project, updated time, and command."
+  "Annotate CANDIDATE with cwd/project context and updated time.
+The running command is part of the candidate itself so it remains visible even
+when completion UIs reserve little room for annotations."
   (when-let ((entry (term-sessions-consult--entry candidate)))
-    (let ((project (term-sessions--fit-column
-                    (if-let ((project (term-sessions--string-or-nil
-                                       (plist-get entry :project))))
-                        (format "[%s]" project)
-                      "")
-                    18))
-          (updated (term-sessions--fit-column
-                    (if-let ((updated (term-sessions--string-or-nil
+    (let* ((cwd-value (term-sessions--string-or-nil (plist-get entry :cwd)))
+           (project-value (term-sessions--string-or-nil (plist-get entry :project)))
+           (cwd (term-sessions--fit-column
+                 (if cwd-value
+                     (format "cwd:%s" (abbreviate-file-name cwd-value))
+                   "")
+                 34))
+           (project (term-sessions--fit-column
+                     (if project-value (format "[%s]" project-value) "")
+                     18))
+           (updated (if-let ((updated (term-sessions--string-or-nil
                                        (plist-get entry :updated))))
                         (format "updated:%s" updated)
-                      "")
-                    25))
-          (command (or (plist-get entry :command) "")))
-      (if (and (string-empty-p (string-trim project))
-               (string-empty-p (string-trim updated))
-               (string-empty-p command))
+                      "")))
+      (if (and (string-empty-p (string-trim cwd))
+               (string-empty-p (string-trim project))
+               (string-empty-p updated))
           ""
-        (format "  %s  %s  %s" project updated command)))))
+        (format "  %s  %s  %s" cwd project updated)))))
 
 (defun term-sessions-consult--open (candidate)
   "Open the session named by CANDIDATE."
