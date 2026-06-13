@@ -54,7 +54,7 @@
 
         checks.default = pkgs.runCommand "term-sessions-check" { nativeBuildInputs = [ pkgs.emacs ]; } ''
           cp ${testSrc}/*.el .
-          emacs --batch -Q -L . -f batch-byte-compile term-sessions.el
+          emacs --batch -Q -L . -f batch-byte-compile $(find . -maxdepth 1 -name '*.el' ! -name 'term-sessions-tests.el' -print | sort)
           emacs --batch -Q -L . -l term-sessions-tests.el -f ert-run-tests-batch-and-exit
           touch $out
         '';
