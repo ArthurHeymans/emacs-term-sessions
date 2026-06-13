@@ -16,6 +16,7 @@
 (require 'term-sessions-list)
 
 (declare-function consult--multi "consult")
+(declare-function project-root "project" (project))
 
 (defcustom term-sessions-consult-sources
   '(term-sessions-consult--source-session
