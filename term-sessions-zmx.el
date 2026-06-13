@@ -54,18 +54,23 @@ remote file handler so the remote PATH and connection-local settings apply."
                 (executable-find term-sessions-zmx-program))
       (user-error "Cannot find zmx executable `%s'" term-sessions-zmx-program))))
 
-(defun term-sessions--call (program &rest args)
-  "Run PROGRAM with ARGS and return stdout as a string.
-Signals `user-error' on a non-zero exit status.  The current
-`default-directory' is respected, including TRAMP directories where
-`process-file' supports them."
+(defun term-sessions--call-process-file (program infile &rest args)
+  "Run PROGRAM with INFILE and ARGS, returning stdout as a string.
+Signal `user-error' on a non-zero exit status."
   (with-temp-buffer
-    (let ((status (apply #'process-file program nil t nil args)))
+    (let ((status (apply #'process-file program infile t nil args)))
       (unless (eq status 0)
         (user-error "%s %s failed: %s"
                     program (string-join args " ")
                     (string-trim (buffer-string))))
       (buffer-string))))
+
+(defun term-sessions--call (program &rest args)
+  "Run PROGRAM with ARGS and return stdout as a string.
+Signals `user-error' on a non-zero exit status.  The current
+`default-directory' is respected, including TRAMP directories where
+`process-file' supports them."
+  (apply #'term-sessions--call-process-file program nil args))
 
 (defun term-sessions--call-with-stdin (program stdin &rest args)
   "Run PROGRAM with STDIN and ARGS, returning stdout as a string."
@@ -76,13 +81,7 @@ Signals `user-error' on a non-zero exit status.  The current
     (unwind-protect
         (progn
           (with-temp-file file (insert stdin))
-          (with-temp-buffer
-            (let ((status (apply #'process-file program file t nil args)))
-              (unless (eq status 0)
-                (user-error "%s %s failed: %s"
-                            program (string-join args " ")
-                            (string-trim (buffer-string))))
-              (buffer-string))))
+          (apply #'term-sessions--call-process-file program file args))
       (ignore-errors (delete-file file)))))
 
 (defun term-sessions--zmx (&rest args)
