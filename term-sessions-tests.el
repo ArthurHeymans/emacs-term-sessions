@@ -70,9 +70,11 @@
                    :updated-time 10))))
 
 (ert-deftest term-sessions-test-org-link-roundtrip-special-name ()
-  (let* ((term-sessions-preferred-frontend 'term)
+  (let* ((term-sessions-backend 'zmx)
+         (term-sessions-preferred-frontend 'term)
          (term-sessions-current-time-function (lambda () 0))
-         (link (term-sessions--org-link 'zmx "dev:box"))
+         (spec (term-sessions-spec-current "dev:box" nil term-sessions-preferred-frontend))
+         (link (term-sessions--spec-org-link spec))
          (components (term-sessions--org-path-components
                       (substring link (length "term-session:")))))
     (should (string-prefix-p "term-session:spec:" link))
@@ -83,8 +85,10 @@
 
 (ert-deftest term-sessions-test-remote-org-link-roundtrip ()
   (let* ((default-directory "/ssh:user@example:/tmp")
+         (term-sessions-backend 'zmx)
          (term-sessions-current-time-function (lambda () 0))
-         (link (term-sessions--org-link 'zmx "dev:box"))
+         (spec (term-sessions-spec-current "dev:box" nil term-sessions-preferred-frontend))
+         (link (term-sessions--spec-org-link spec))
          (components (term-sessions--org-path-components
                       (substring link (length "term-session:")))))
     (should (string-prefix-p "term-session:spec:" link))

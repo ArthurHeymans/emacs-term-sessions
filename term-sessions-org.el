@@ -108,11 +108,6 @@ an Emacs buffer is opened first and the block is sent through that buffer."
                    (localname . ,(term-sessions-location-localname location))))))
     (format "term-session:spec:%s" query)))
 
-(defun term-sessions--org-link (backend name)
-  "Build an Org link for BACKEND session NAME in `default-directory'."
-  (let ((term-sessions-backend backend))
-    (term-sessions--spec-org-link (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
-
 (defun term-sessions--org-link-description (name &optional spec)
   "Return default Org link description for session NAME and optional SPEC.
 Keep the session name first so inserted links remain recognizable even when
