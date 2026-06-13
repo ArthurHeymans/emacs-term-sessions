@@ -1,12 +1,59 @@
 #+title: term-sessions.el
 
-Greenfield Emacs frontend for persistent terminal sessions owned by an external backend.
+Persistent terminal sessions for Emacs, powered by an external terminal-session backend.
 
-The initial backend is [[https://github.com/neurosnap/zmx][zmx]]. Emacs does not own session lifecycle state; it shells out to =zmx= for list/start/attach/kill/history/tail/send/run/wait operations and opens interactive attaches in a terminal frontend.
+=term-sessions.el= is for terminals that should outlive buffers, Emacs restarts, and SSH disconnects.  The current backend is [[https://github.com/neurosnap/zmx][zmx]]: Emacs shells out to =zmx= for control operations and opens attaches through a selected terminal frontend such as =vterm=, =eat=, =ghostel=, =term=, or =shell=.
 
-* Development
+The design goal is simple: Emacs is the client, not the owner.  Session lifecycle, PTYs, history, and attach state belong to the backend.
 
-Enter a shell with Emacs and zmx available:
+* How this differs from detached.el
+
+[[https://sr.ht/~niklaseklund/detached.el/][detached.el]] is excellent if you want to run commands from Emacs and come back to their output later.  =term-sessions.el= is exploring a different shape: long-lived named terminal sessions that feel like reconnectable terminals first, and Emacs jobs second.
+
+| Area | detached.el | term-sessions.el |
+|------+-------------+------------------|
+| Primary use case | Detached commands/jobs from Emacs | Persistent interactive terminal sessions |
+| Backend | =dtach= plus Emacs-managed session metadata/logs | External backend owns sessions; currently =zmx= |
+| Source of truth | Emacs Lisp session DB plus files/logs | Backend query/control API |
+| Output model | Captured logs; great for view/copy/diff/compile | Backend history/tail plus terminal attach |
+| Terminal attach | =dtach= attach, often with log context | Frontend adapters opening backend attaches |
+| Finite jobs | Mature: compile, rerun, notifications, exit status | Basic =run=/=wait= commands; less mature |
+| Interactive shells | Supported, but command/job-centered | The central model |
+| Org support | Babel =:detached t= job execution | Store/follow links to named sessions |
+| Remote support | Mature TRAMP/connection-local support | TRAMP-aware control calls; remote attach support is evolving |
+| UI ecosystem | Mature shell/eshell/compile/dired/consult integrations | Smaller greenfield UI, focused on terminal sessions |
+
+Use =detached.el= if you primarily want detached =compile=, =async-shell-command=, Eshell jobs, notifications, reruns, and transcript actions.
+
+Use =term-sessions.el= if you primarily want named terminals such as =dev=, =build=, or =prod-logs= that can be reopened later, linked from Org, and owned by something outside Emacs.
+
+The aspiration is to keep the best UX lessons from =detached.el=—easy entry points, list UIs, annotations, Org integration, and remote friendliness—while avoiding an Emacs-owned lifecycle database for interactive PTYs.
+
+* Status
+
+This is a greenfield package.  The =zmx= backend is implemented first.  The API and UX are still expected to change.
+
+Implemented pieces include:
+
+- start/open/list/kill commands
+- history, tail, send, run, and wait commands
+- local frontend adapters for =vterm=, =eat=, =ghostel=, =term=, and =shell=
+- TRAMP-aware noninteractive/control operations
+- Org links for storing and reopening session specs
+- tabulated session list UI
+
+* Installation
+
+Clone this repository and add it to your =load-path=:
+
+#+begin_src emacs-lisp
+(add-to-list 'load-path "/path/to/term-sessions")
+(require 'term-sessions)
+#+end_src
+
+=zmx= must be available at runtime wherever session commands run.
+
+If you use Nix, the development shell provides Emacs and =zmx=:
 
 #+begin_src sh
 nix develop
@@ -14,25 +61,22 @@ nix develop
 
 * Basic usage
 
-Add the repo to =load-path=, then:
+Choose a terminal frontend:
 
 #+begin_src emacs-lisp
-(require 'term-sessions)
-(setq term-sessions-preferred-frontend 'term) ; built in; or 'vterm, 'eat, 'shell
+(setq term-sessions-preferred-frontend 'term) ; built in
+;; Other supported values include 'vterm, 'eat, 'ghostel, and 'shell.
 #+end_src
 
-=zmx= must be available at runtime wherever the session commands run. The dev shell provides it locally; for TRAMP paths, install/configure =zmx= on the remote host or set =term-sessions-zmx-program= connection-locally.
+Then run:
 
-Current remote status: noninteractive/control calls (=list=, =kill=, =history=, =send=, =run=, =wait=, and =tail=) use Emacs process APIs that can run through TRAMP =process-file=/=start-file-process=. Interactive attach is controlled by =term-sessions-attach-transport=: local directories attach locally, and =term=, =eat=, =ghostel=, =vterm=, and =shell= now prefer TRAMP process attaches for remote directories, including =/rpc:= when tramp-rpc provides that method and TRAMP multi-hop paths. The local SSH wrapper remains as an explicit fallback and is also used automatically when an =auto= TRAMP attach fails for a simple SSH-like path.
+- =M-x term-sessions-start= — create or attach to a session
+- =M-x term-sessions-open= — attach to an existing session
+- =M-x term-sessions-list= — browse sessions
+- =M-x term-sessions-kill= — kill a session
 
-=term-sessions-start= creates-or-attaches. =term-sessions-open= only opens existing sessions.
+Additional commands:
 
-Commands:
-
-- =M-x term-sessions-start=
-- =M-x term-sessions-open=
-- =M-x term-sessions-list=
-- =M-x term-sessions-kill=
 - =M-x term-sessions-history=
 - =M-x term-sessions-tail=
 - =M-x term-sessions-send=
@@ -43,15 +87,15 @@ Commands:
 - =M-x term-sessions-wait-async=
 - =M-x term-sessions-store-org-link=
 
-Org links store a session spec with the original TRAMP directory/cwd, command, frontend, project, timestamp, and recreate policy. Legacy local/SSH links are still accepted:
+=term-sessions-start= creates-or-attaches.  =term-sessions-open= only opens existing sessions.
 
-#+begin_src org
-[[term-session:spec:backend=zmx&name=work&cwd=%2Fsshx%3Ahost%3A%2Frepo%2F&frontend=term]]
-[[term-session:zmx:local:work]]
-[[term-session:zmx:ssh:user%40host:work]]
-#+end_src
+* Remote and TRAMP behavior
 
-Attach transport can be customized:
+For TRAMP paths, install/configure =zmx= on the remote host or set =term-sessions-zmx-program= connection-locally.
+
+Noninteractive/control calls (=list=, =kill=, =history=, =send=, =run=, =wait=, and =tail=) use Emacs process APIs that can run through TRAMP =process-file=/=start-file-process=.
+
+Interactive attach is controlled by =term-sessions-attach-transport=:
 
 #+begin_src emacs-lisp
 (setq term-sessions-attach-transport 'auto)          ; default
@@ -59,9 +103,21 @@ Attach transport can be customized:
 (setq term-sessions-attach-transport 'ssh-wrapper)   ; force local SSH wrapper
 #+end_src
 
+Local directories attach locally.  For remote directories, =term=, =eat=, =ghostel=, =vterm=, and =shell= prefer TRAMP process attaches, including =/rpc:= when tramp-rpc provides that method and TRAMP multi-hop paths.  The local SSH wrapper remains as an explicit fallback and is also used automatically when an =auto= TRAMP attach fails for a simple SSH-like path.
+
+* Org links
+
+Org links store a session spec with the original TRAMP directory/cwd, command, frontend, project, timestamp, and recreate policy.
+
+#+begin_src org
+[[term-session:spec:backend=zmx&name=work&cwd=%2Fsshx%3Ahost%3A%2Frepo%2F&frontend=term]]
+#+end_src
+
 * Frontends
 
-=vterm=, =eat=, =ghostel=, =term=, and =shell= are implemented for local interactive attach. For remote directories they prefer TRAMP/tramp-rpc process attaches; =ghostel= uses its native TRAMP-aware =ghostel-exec= path and keeps Ghostel title/directory tracking while prefixing buffer names with the term session name. =term-sessions-ghostel-open-function= remains customizable for users who want a different Ghostel opener.
+=vterm=, =eat=, =ghostel=, =term=, and =shell= are implemented for local interactive attach.  For remote directories they prefer TRAMP/tramp-rpc process attaches.
+
+=ghostel= uses its native TRAMP-aware =ghostel-exec= path and keeps Ghostel title/directory tracking while prefixing buffer names with the term session name.  =term-sessions-ghostel-open-function= remains customizable for users who want a different Ghostel opener.
 
 * Internal modules
 
@@ -76,8 +132,8 @@ The package is split by responsibility:
 
 * Nix lockfile
 
-=flake.lock= is kept in the repository so the zmx/nixpkgs inputs used by the dev shell and checks are reproducible. Update it intentionally with =nix flake update=.
+=flake.lock= is kept in the repository so the zmx/nixpkgs inputs used by the dev shell and checks are reproducible.  Update it intentionally with =nix flake update=.
 
 * License
 
-term-sessions.el is licensed under the GNU General Public License version 3 or later. See [[file:LICENSE][LICENSE]].
+term-sessions.el is licensed under the GNU General Public License version 3 or later.  See [[file:LICENSE][LICENSE]].

@@ -108,49 +108,23 @@ When called from a session buffer, default to that session."
 
 (defun term-sessions--org-path-components (path)
   "Parse Org term-session link PATH.
-Return a plist with at least :backend, :location, :target, :name, :directory,
-:cwd, :command, :frontend, :project, and :created-at.  Legacy local/ssh links
-are still accepted."
-  (if (string-prefix-p "spec:" path)
-      (let ((plist (term-sessions--org-decode-query (substring path 5))))
-        (plist-put plist :location "spec")
-        (unless (plist-get plist :backend)
-          (user-error "Invalid term-session spec link: %s" path))
-        (unless (plist-get plist :name)
-          (user-error "Invalid term-session spec link: %s" path))
-        plist)
-    (pcase-let ((`(,backend ,location . ,rest) (split-string path ":")))
-      (unless (and backend location rest)
-        (user-error "Invalid term-session link: %s" path))
-      (pcase location
-        ("local"
-         (list :backend backend
-               :location location
-               :target nil
-               :name (url-unhex-string (string-join rest ":"))))
-        ("ssh"
-         (unless (cdr rest)
-           (user-error "Invalid SSH term-session link: %s" path))
-         (let ((target (url-unhex-string (car rest)))
-               (name (url-unhex-string (string-join (cdr rest) ":"))))
-           (list :backend backend
-                 :location location
-                 :target target
-                 :directory (format "/ssh:%s:~/" target)
-                 :cwd (format "/ssh:%s:~/" target)
-                 :name name)))
-        (_
-         (user-error "Unsupported term-session location: %s" location))))))
+Return a plist with at least :backend, :location, :name, :cwd, :command,
+:frontend, :project, and :created-at."
+  (unless (string-prefix-p "spec:" path)
+    (user-error "Invalid term-session spec link: %s" path))
+  (let ((plist (term-sessions--org-decode-query (substring path 5))))
+    (plist-put plist :location "spec")
+    (unless (plist-get plist :backend)
+      (user-error "Invalid term-session spec link: %s" path))
+    (unless (plist-get plist :name)
+      (user-error "Invalid term-session spec link: %s" path))
+    plist))
 
 (defun term-sessions--org-default-directory (components)
   "Return `default-directory' for Org link COMPONENTS."
   (or (plist-get components :cwd)
       (plist-get components :directory)
-      (pcase (plist-get components :location)
-        ("local" default-directory)
-        ("ssh" (format "/ssh:%s:~/" (plist-get components :target)))
-        (_ (user-error "Unsupported term-session location: %s"
-                       (plist-get components :location))))))
+      default-directory))
 
 (defun term-sessions--org-symbol (components key fallback)
   "Return COMPONENTS KEY as a symbol, or FALLBACK."

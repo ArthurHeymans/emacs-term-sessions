@@ -67,9 +67,7 @@
     (should (equal (plist-get components :backend) "zmx"))
     (should (equal (plist-get components :name) "dev:box"))
     (should (equal (plist-get components :frontend) "term"))
-    (should (plist-get components :cwd)))
-  (should (equal (term-sessions--org-path-components "zmx:local:dev%3Abox")
-                 '(:backend "zmx" :location "local" :target nil :name "dev:box"))))
+    (should (plist-get components :cwd))))
 
 (ert-deftest term-sessions-test-remote-org-link-roundtrip ()
   (let* ((default-directory "/ssh:user@example:/tmp")
@@ -84,12 +82,7 @@
     (should (equal (plist-get components :method) "ssh"))
     (should (equal (plist-get components :user) "user"))
     (should (equal (plist-get components :host) "example"))
-    (should (equal (plist-get components :localname) "/tmp"))
-    (should (equal (term-sessions--org-path-components
-                    "zmx:ssh:user%40example:dev%3Abox")
-                   '(:backend "zmx" :location "ssh" :target "user@example"
-                     :directory "/ssh:user@example:~/" :cwd "/ssh:user@example:~/"
-                     :name "dev:box")))))
+    (should (equal (plist-get components :localname) "/tmp"))))
 
 (ert-deftest term-sessions-test-store-org-link-description-starts-with-session-name ()
   (let ((default-directory "/ssh:user@example:/tmp/project")
@@ -169,7 +162,7 @@
               ((symbol-function 'term-sessions-open-with-frontend)
                (lambda (name command frontend allow-create)
                  (setq opened (list name command frontend allow-create)))))
-      (term-sessions--open-org-path "zmx:local:dev" nil)
+      (term-sessions--open-org-path "spec:backend=zmx&name=dev&cwd=%2Ftmp%2F&frontend=term" nil)
       (should (equal opened '("dev" nil term nil)))
       (should-not started))))
 
@@ -183,7 +176,7 @@
                (lambda (name command frontend allow-create)
                  (setq opened (list name command frontend allow-create))
                  (setq opened-directory default-directory))))
-      (term-sessions--open-org-path "zmx:ssh:user%40example:dev" nil)
+      (term-sessions--open-org-path "spec:backend=zmx&name=dev&cwd=%2Fssh%3Auser%40example%3A~%2F&frontend=term" nil)
       (should (equal opened '("dev" nil term nil)))
       (should (equal active-directory "/ssh:user@example:~/"))
       (should (equal opened-directory "/ssh:user@example:~/")))))
@@ -196,7 +189,7 @@
               ((symbol-function 'term-sessions-open-with-frontend)
                (lambda (name command frontend allow-create)
                  (setq started (list name command frontend allow-create)))))
-      (term-sessions--open-org-path "zmx:local:missing" nil)
+      (term-sessions--open-org-path "spec:backend=zmx&name=missing&cwd=%2Ftmp%2F&frontend=term" nil)
       (should-not opened)
       (should (equal started '("missing" nil term t))))))
 
