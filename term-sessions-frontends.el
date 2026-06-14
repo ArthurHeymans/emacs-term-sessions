@@ -34,6 +34,7 @@
 (defvar vterm-buffer-name)
 (defvar vterm-tramp-shells)
 (defvar ghostel--process)
+(defvar ghostel-buffer-name-function)
 (defvar ghostel-set-title-function)
 
 (defcustom term-sessions-ghostel-open-function #'term-sessions--ghostel-open-command
@@ -86,15 +87,30 @@ This is intentionally pluggable because ghostel APIs are still evolving."
   "Return term-session buffer name for NAME using Ghostel TITLE."
   (format "*term-session:%s: %s*" name (string-trim title)))
 
+(defun term-sessions--ghostel-buffer-name-for-title (name fallback-name title)
+  "Return Ghostel buffer name for session NAME, FALLBACK-NAME, and TITLE."
+  (let ((title (string-trim (or title ""))))
+    (if (string-empty-p title)
+        fallback-name
+      (term-sessions--buffer-name-for-title name title))))
+
 (defun term-sessions--install-ghostel-title-tracking (name fallback-name)
   "Keep Ghostel buffer title tracking while prefixing with session NAME."
-  (setq-local ghostel-set-title-function
-              (lambda (title)
-                (rename-buffer
-                 (if (string-empty-p (string-trim title))
-                     fallback-name
-                   (term-sessions--buffer-name-for-title name title))
-                 t))))
+  (if (boundp 'ghostel-buffer-name-function)
+      ;; Newer Ghostel calls this function for both title changes and OSC 7
+      ;; directory reports.  On directory-only updates the title can be nil, so
+      ;; return the fallback buffer name instead of calling `string-trim' on nil.
+      (setq-local ghostel-buffer-name-function
+                  (lambda (title)
+                    (term-sessions--ghostel-buffer-name-for-title
+                     name fallback-name title)))
+    ;; Older Ghostel exposed `ghostel-set-title-function' as an effectful hook.
+    (setq-local ghostel-set-title-function
+                (lambda (title)
+                  (rename-buffer
+                   (term-sessions--ghostel-buffer-name-for-title
+                    name fallback-name title)
+                   t)))))
 
 (defun term-sessions--open-vterm (name command buffer-name &optional spec)
   "Open COMMAND in vterm BUFFER-NAME for session NAME."

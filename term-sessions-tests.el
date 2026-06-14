@@ -548,6 +548,18 @@
     (should (eq (term-sessions--ensure-interactive-attach-supported nil 'shell)
                 'tramp-process))))
 
+(ert-deftest term-sessions-test-ghostel-title-tracking-allows-nil-title ()
+  (with-temp-buffer
+    ;; Simulate newer Ghostel, where this variable is bound and callbacks return
+    ;; the desired buffer name.  Ghostel calls it with nil on OSC 7-only updates.
+    (setq-local ghostel-buffer-name-function #'ignore)
+    (term-sessions--install-ghostel-title-tracking "dev" "*term-session:dev: fallback*")
+    (should (functionp ghostel-buffer-name-function))
+    (should (equal (funcall ghostel-buffer-name-function nil)
+                   "*term-session:dev: fallback*"))
+    (should (equal (funcall ghostel-buffer-name-function "remote title")
+                   "*term-session:dev: remote title*"))))
+
 (ert-deftest term-sessions-test-remote-interactive-attach-supports-ssh ()
   (let ((default-directory "/ssh:example:/tmp"))
     (should (eq (term-sessions--ensure-interactive-attach-supported nil 'term)
