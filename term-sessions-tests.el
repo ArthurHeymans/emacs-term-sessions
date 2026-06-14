@@ -549,6 +549,8 @@
                 'tramp-process))))
 
 (ert-deftest term-sessions-test-ghostel-title-tracking-allows-nil-title ()
+  (should (equal (term-sessions--buffer-name-for-title "dev" nil)
+                 "*term-session:dev: *"))
   (with-temp-buffer
     ;; Simulate newer Ghostel, where this variable is bound and callbacks return
     ;; the desired buffer name.  Ghostel calls it with nil on OSC 7-only updates.
@@ -635,6 +637,15 @@
   (should (equal (term-sessions-list--delete-duplicate-directories
                   '("/home/arthur/" "/ssh:example:/tmp/" "/ssh:example:/"))
                  '("/home/arthur/" "/ssh:example:/tmp/"))))
+
+(ert-deftest term-sessions-test-list-skips-malformed-tramp-connections ()
+  (let ((term-sessions-list-include-open-remotes t)
+        (bad '(tramp-file-name "ssh" nil nil nil nil "/" nil))
+        (good '(tramp-file-name "ssh" nil nil "host" nil "/" nil)))
+    (cl-letf (((symbol-function 'tramp-list-connections)
+               (lambda () (list bad good))))
+      (should (equal (term-sessions-list--open-remote-directories)
+                     '("/ssh:host:/"))))))
 
 (ert-deftest term-sessions-test-list-session-rows-queries-known-directories ()
   (let (queried cleared)

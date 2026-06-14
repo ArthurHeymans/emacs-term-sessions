@@ -85,7 +85,7 @@ This is intentionally pluggable because ghostel APIs are still evolving."
 
 (defun term-sessions--buffer-name-for-title (name title)
   "Return term-session buffer name for NAME using Ghostel TITLE."
-  (format "*term-session:%s: %s*" name (string-trim title)))
+  (format "*term-session:%s: %s*" name (string-trim (or title ""))))
 
 (defun term-sessions--ghostel-buffer-name-for-title (name fallback-name title)
   "Return Ghostel buffer name for session NAME, FALLBACK-NAME, and TITLE."

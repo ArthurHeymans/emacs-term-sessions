@@ -244,21 +244,23 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
          (host (tramp-file-name-host vec))
          (port (tramp-file-name-port vec))
          (hop (tramp-file-name-hop vec)))
-    (format "/%s%s:%s%s%s:/"
-            (or hop "")
-            method
-            (if user (concat user "@") "")
-            host
-            (if port (concat "#" port) ""))))
+    (when (and method host)
+      (format "/%s%s:%s%s%s:/"
+              (or hop "")
+              method
+              (if user (concat user "@") "")
+              host
+              (if port (concat "#" port) "")))))
 
 (defun term-sessions-list--remote-key-for-tramp-vec (vec)
   "Return backend identity key for TRAMP connection VEC.
 zmx sessions are owned by the final remote user/host, not by the TRAMP method
 used to reach it.  `/sshx:host:' and `/rpc:host:' therefore refer to the same
 session server and should not be listed twice."
-  (list (or (tramp-file-name-user vec) (user-login-name))
-        (substring-no-properties (tramp-file-name-host vec))
-        (tramp-file-name-port vec)))
+  (when-let ((host (tramp-file-name-host vec)))
+    (list (or (tramp-file-name-user vec) (user-login-name))
+          (substring-no-properties host)
+          (tramp-file-name-port vec))))
 
 (defun term-sessions-list--tramp-vec-score (vec)
   "Return preference score for TRAMP connection VEC; lower is better."
@@ -281,11 +283,12 @@ session server and should not be listed twice."
     (let ((best-by-remote (make-hash-table :test #'equal))
           directories)
       (dolist (vec (tramp-list-connections))
-        (when-let ((directory (ignore-errors
-                                (substring-no-properties
-                                 (term-sessions-list--directory-for-tramp-vec vec)))))
-          (let* ((key (term-sessions-list--remote-key-for-tramp-vec vec))
-                 (score (term-sessions-list--tramp-vec-score vec))
+        (when-let* ((directory (ignore-errors
+                                 (substring-no-properties
+                                  (term-sessions-list--directory-for-tramp-vec vec))))
+                    (key (ignore-errors
+                           (term-sessions-list--remote-key-for-tramp-vec vec))))
+          (let* ((score (term-sessions-list--tramp-vec-score vec))
                  (existing (gethash key best-by-remote)))
             (when (or (null existing) (< score (car existing)))
               (puthash key (cons score directory) best-by-remote)))))
