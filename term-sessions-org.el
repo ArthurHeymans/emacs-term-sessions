@@ -123,30 +123,37 @@ additional location context is included."
     name))
 
 ;;;###autoload
-(defun term-sessions-store-org-link (&optional name)
-  "Store an Org link to persistent session NAME.
-When called from a session buffer, default to that session."
+(defun term-sessions-store-org-link (&optional name-or-interactive)
+  "Store an Org link to a persistent session.
+When called from a session buffer, default to that session.  When called
+interactively as a command, prompt for a session if needed.  When Org calls this
+as a link store function outside a term-sessions buffer, return nil so Org can
+fall back to the normal link for the current context.  NAME-OR-INTERACTIVE is a
+string session name for direct Lisp callers, or Org's INTERACTIVE? callback
+argument otherwise."
   (interactive)
-  ;; Org store functions can be called with Org's prefix/context argument.
-  ;; Treat only string NAME values as an explicit session name; otherwise use
-  ;; the current term-sessions buffer metadata or prompt.  Without this,
-  ;; `C-u 1 C-c l' can accidentally store a session named "1".
-  (let* ((name (or (and (stringp name) name)
-                   term-sessions-current-name
-                   (term-sessions--read-name "Store link for session: " t)))
-         (backend (or term-sessions-current-backend term-sessions-backend))
-         (spec (or term-sessions-current-spec
-                   (let ((term-sessions-backend backend))
-                     (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
-         (link (term-sessions--spec-org-link spec))
-         (description (term-sessions--org-link-description name spec)))
-    (if (fboundp 'org-link-store-props)
-        (org-link-store-props :type "term-session"
-                              :link link
-                              :description description)
-      (kill-new (format "[[%s][%s]]" link description)))
-    (message "Stored %s" link)
-    link))
+  ;; Org store functions are called for every `org-store-link' and
+  ;; `org-capture' annotation.  They must decline contexts they do not own;
+  ;; otherwise Org sees an extra candidate link and prompts for a selection in
+  ;; unrelated buffers.  Treat only string values as explicit session names;
+  ;; Org passes a boolean INTERACTIVE? argument here.
+  (let ((name (or (and (stringp name-or-interactive) name-or-interactive)
+                  term-sessions-current-name)))
+    (when (or name (called-interactively-p 'interactive))
+      (let* ((name (or name (term-sessions--read-name "Store link for session: " t)))
+             (backend (or term-sessions-current-backend term-sessions-backend))
+             (spec (or term-sessions-current-spec
+                       (let ((term-sessions-backend backend))
+                         (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
+             (link (term-sessions--spec-org-link spec))
+             (description (term-sessions--org-link-description name spec)))
+        (if (fboundp 'org-link-store-props)
+            (org-link-store-props :type "term-session"
+                                  :link link
+                                  :description description)
+          (kill-new (format "[[%s][%s]]" link description)))
+        (message "Stored %s" link)
+        link))))
 
 (defun term-sessions--org-path-components (path)
   "Parse Org term-session link PATH.

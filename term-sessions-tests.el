@@ -122,6 +122,16 @@
       (should (string-prefix-p "hello" (plist-get stored :description)))
       (should (string-match-p "name=hello" (plist-get stored :link))))))
 
+(ert-deftest term-sessions-test-store-org-link-declines-unrelated-org-context ()
+  (let (stored)
+    (cl-letf (((symbol-function 'term-sessions--read-name)
+               (lambda (&rest _args) (error "should not prompt")))
+              ((symbol-function 'org-link-store-props)
+               (lambda (&rest plist) (setq stored plist))))
+      (should-not (term-sessions-store-org-link nil))
+      (should-not (term-sessions-store-org-link t))
+      (should-not stored))))
+
 (ert-deftest term-sessions-test-session-spec-captures-current-location ()
   (let ((default-directory "/ssh:t480-arthur:/tmp/project")
         (term-sessions-current-time-function (lambda () 0)))
