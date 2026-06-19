@@ -72,12 +72,18 @@ Signals `user-error' on a non-zero exit status.  The current
 `process-file' supports them."
   (apply #'term-sessions--call-process-file program nil args))
 
+(defun term-sessions--stdin-temp-file-prefix ()
+  "Return a temporary-file prefix for zmx stdin payloads.
+For remote `default-directory' values, use the remote host's temp directory
+instead of the current project directory, which may be read-only."
+  (expand-file-name "term-sessions-stdin-"
+                    (if (file-remote-p default-directory)
+                        (term-sessions--remote-file-name temporary-file-directory)
+                      temporary-file-directory)))
+
 (defun term-sessions--call-with-stdin (program stdin &rest args)
   "Run PROGRAM with STDIN and ARGS, returning stdout as a string."
-  (let ((file (make-temp-file (expand-file-name "term-sessions-stdin-"
-                                                (if (file-remote-p default-directory)
-                                                    default-directory
-                                                  temporary-file-directory)))))
+  (let ((file (make-temp-file (term-sessions--stdin-temp-file-prefix))))
     (unwind-protect
         (progn
           (with-temp-file file (insert stdin))

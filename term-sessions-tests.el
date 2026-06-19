@@ -19,6 +19,12 @@
                " dev \n\nbuild\n")))
     (should (equal (term-sessions--zmx-list-names) '("dev" "build")))))
 
+(ert-deftest term-sessions-test-stdin-temp-file-prefix-uses-remote-temp-dir ()
+  (let ((default-directory "/ssh:user@example:/read-only/project/")
+        (temporary-file-directory "/tmp/"))
+    (should (equal (term-sessions--stdin-temp-file-prefix)
+                   "/ssh:user@example:/tmp/term-sessions-stdin-"))))
+
 (ert-deftest term-sessions-test-zmx-list-sessions-parses-details ()
   (let ((term-sessions-zmx-enrich-process-info nil))
     (cl-letf (((symbol-function 'term-sessions--zmx)
