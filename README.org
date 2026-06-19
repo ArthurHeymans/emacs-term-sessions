@@ -133,7 +133,7 @@ nix build
 ,#+end_src
 
 ,#+RESULTS:
-: [[term-session:spec:...][build]]
+[[term-session:spec:...][build]]
 #+end_src
 
 The block sends the expanded body to the chosen terminal session and returns a

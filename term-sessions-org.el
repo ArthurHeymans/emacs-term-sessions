@@ -17,6 +17,8 @@
 
 (declare-function org-link-set-parameters "ol" (type &rest parameters))
 (declare-function org-link-store-props "ol" (&rest plist))
+(declare-function org-babel-get-src-block-info "ob-core" (&optional light datum))
+(declare-function org-babel-merge-params "ob-core" (&rest alists))
 (declare-function org-babel-pick-name "ob-core" (names params))
 (declare-function org-babel-reassemble-table "ob-core" (table colnames rownames))
 (declare-function comint-send-string "comint" (process string))
@@ -64,6 +66,11 @@ terminal input appear delayed.  With the default nil, an active session without
 an Emacs buffer is opened first and the block is sent through that buffer."
   :group 'term-sessions
   :type 'boolean)
+
+(defconst term-sessions--org-babel-raw-result-conflicts
+  '("raw" "html" "latex" "org" "code" "pp" "drawer" "link" "graphics"
+    "verbatim")
+  "Org Babel result parameters that should not be overridden with raw links.")
 
 (defun term-sessions--org-encode-alist (alist)
   "Encode ALIST as a query string."
@@ -391,6 +398,36 @@ the visible terminal.  Return `buffer' or `zmx' to describe the send path."
    (org-babel-pick-name
     (cdr (assq :rowname-names params)) (cdr (assq :rownames params)))))
 
+(defun term-sessions--org-babel-raw-result-needed-p (params)
+  "Return non-nil when PARAMS should insert term-session links as raw Org."
+  (and (term-sessions--org-babel-session-name params)
+       (not (seq-intersection
+             (split-string (or (cdr (assq :results params)) ""))
+             term-sessions--org-babel-raw-result-conflicts
+             #'string=))))
+
+;;;###autoload
+(defun term-sessions-org-babel-execute-src-block (org-babel-execute-src-block-fun
+                                                 &rest args)
+  "Call ORG-BABEL-EXECUTE-SRC-BLOCK-FUN with raw Org link results when needed.
+Org's default scalar string insertion turns returned links into example text,
+which makes `term-session:' links non-clickable.  For `:term-session' blocks,
+add `raw' to `:results' unless the user explicitly chose another result
+renderer such as `drawer' or `org'."
+  (let* ((info (or (nth 1 args) (org-babel-get-src-block-info)))
+         (params (nth 2 args))
+         (merged-params (org-babel-merge-params (nth 2 info) params)))
+    (when (term-sessions--org-babel-raw-result-needed-p merged-params)
+      (let ((raw-params (org-babel-merge-params params '((:results . "raw")))))
+        ;; Do not always pass through every optional argument.  Some popular
+        ;; Org advice (for example Doom's async advice) supports older Org
+        ;; arities, so adding an extra trailing nil can break composition.
+        (setq args (if (>= (length args) 3)
+                       (append (seq-take args 2) (list raw-params)
+                               (nthcdr 3 args))
+                     (list (nth 0 args) info raw-params)))))
+    (apply org-babel-execute-src-block-fun args)))
+
 ;;;###autoload
 (defun term-sessions-org-babel-shell (org-babel-execute-shell-fun body params)
   "Call ORG-BABEL-EXECUTE-SHELL-FUN or send BODY to a zmx shell.
@@ -437,6 +474,10 @@ offer to recreate it with the stored command and cwd."
   (org-link-set-parameters "term-session"
                            :follow #'term-sessions--open-org-path
                            :store #'term-sessions-store-org-link))
+
+(with-eval-after-load 'ob-core
+  (advice-add 'org-babel-execute-src-block
+              :around #'term-sessions-org-babel-execute-src-block))
 
 (with-eval-after-load 'ob-shell
   (advice-add 'org-babel-execute:shell :around #'term-sessions-org-babel-shell)
