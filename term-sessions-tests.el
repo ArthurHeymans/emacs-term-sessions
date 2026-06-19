@@ -38,6 +38,16 @@
              (lambda (&rest _args) (error "TRAMP failed"))))
     (should-error (term-sessions--zmx-list-sessions) :type 'error)))
 
+(ert-deftest term-sessions-test-zmx-log-file-preserves-remote-tilde ()
+  (let ((default-directory "/ssh:remote-user@example:/repo/"))
+    (should (equal (term-sessions--zmx-log-file-name "dev" "~/.zmx")
+                   "/ssh:remote-user@example:~/.zmx/dev.log"))))
+
+(ert-deftest term-sessions-test-zmx-log-file-qualifies-remote-absolute-path ()
+  (let ((default-directory "/ssh:remote-user@example:/repo/"))
+    (should (equal (term-sessions--zmx-log-file-name "dev" "/var/log/zmx")
+                   "/ssh:remote-user@example:/var/log/zmx/dev.log"))))
+
 (ert-deftest term-sessions-test-zmx-list-sessions-adds-live-cwd-and-command ()
   (cl-letf (((symbol-function 'term-sessions--zmx)
              (lambda (&rest args)

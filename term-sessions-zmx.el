@@ -135,11 +135,22 @@ Signals `user-error' on a non-zero exit status.  The current
                                (match-string 2 line)))))
     plist))
 
-(defun term-sessions--remote-absolute-file (path)
+(defun term-sessions--remote-file-name (path)
   "Return PATH qualified with the current TRAMP prefix when remote."
-  (if-let ((remote (file-remote-p default-directory)))
-      (concat remote path)
+  (if (and (file-remote-p default-directory)
+           (not (file-remote-p path)))
+      (concat (file-remote-p default-directory) path)
     path))
+
+(defun term-sessions--zmx-log-file-name (name log-dir)
+  "Return log file for zmx session NAME in LOG-DIR.
+When `default-directory' is remote, qualify plain remote-side paths before
+local `~' expansion can rewrite them to the local user home."
+  (if (and (file-remote-p default-directory)
+           (not (file-remote-p log-dir)))
+      (term-sessions--remote-file-name
+       (concat (file-name-as-directory log-dir) name ".log"))
+    (expand-file-name (concat name ".log") log-dir)))
 
 (defun term-sessions--zmx-log-dir ()
   "Return zmx log directory, or nil if unavailable."
@@ -151,10 +162,10 @@ Signals `user-error' on a non-zero exit status.  The current
 (defun term-sessions--zmx-log-mtime (name)
   "Return modification time for zmx session NAME log, or nil."
   (when-let ((log-dir (term-sessions--zmx-log-dir)))
-    (let* ((log-file (expand-file-name (concat name ".log") log-dir))
-           (qualified (term-sessions--remote-absolute-file log-file)))
-      (when-let ((attrs (ignore-errors (file-attributes qualified))))
-        (file-attribute-modification-time attrs)))))
+    (when-let ((attrs (ignore-errors
+                        (file-attributes
+                         (term-sessions--zmx-log-file-name name log-dir)))))
+      (file-attribute-modification-time attrs))))
 
 (defun term-sessions--process-output-string (program &rest args)
   "Run PROGRAM with ARGS and return trimmed stdout, or nil on failure."
