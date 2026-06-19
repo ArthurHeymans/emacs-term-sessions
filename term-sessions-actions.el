@@ -29,6 +29,10 @@
     (define-key map (kbd "a") #'term-sessions-action-copy-attach-command)
     (define-key map (kbd "y") #'term-sessions-action-store-org-link)
     (define-key map (kbd "s") #'term-sessions-action-send-command)
+    (define-key map (kbd "!") #'term-sessions-action-run-command)
+    (define-key map (kbd "&") #'term-sessions-action-run-async)
+    (define-key map (kbd "W") #'term-sessions-action-wait)
+    (define-key map (kbd "M-W") #'term-sessions-action-wait-async)
     map)
   "Action map for term-session completion candidates.")
 
@@ -119,6 +123,46 @@
      (if (require 'consult nil t)
          (call-interactively #'consult-line)
        (call-interactively #'isearch-forward)))))
+
+;;;###autoload
+(defun term-sessions-action-run-command (candidate command)
+  "Run COMMAND in term session CANDIDATE and wait for completion."
+  (interactive
+   (list (term-sessions--read-name "Run in session: " t)
+         (read-string "Command: " nil 'term-sessions-command-history)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (term-sessions-run (term-sessions--entry-name entry) command nil))))
+
+;;;###autoload
+(defun term-sessions-action-run-async (candidate command)
+  "Run COMMAND asynchronously in term session CANDIDATE."
+  (interactive
+   (list (term-sessions--read-name "Run async in session: " t)
+         (read-string "Command: " nil 'term-sessions-command-history)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (term-sessions-run-async (term-sessions--entry-name entry) command))))
+
+;;;###autoload
+(defun term-sessions-action-wait (candidate)
+  "Wait for tracked tasks in term session CANDIDATE."
+  (interactive (list (term-sessions--read-name "Wait for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (term-sessions-wait (term-sessions--entry-name entry)))))
+
+;;;###autoload
+(defun term-sessions-action-wait-async (candidate)
+  "Wait asynchronously for tracked tasks in term session CANDIDATE."
+  (interactive (list (term-sessions--read-name "Wait async for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (term-sessions-wait-async (term-sessions--entry-name entry)))))
 
 ;;;###autoload
 (defun term-sessions-action-copy-name (candidate)
