@@ -749,6 +749,14 @@
                  '((name . 3)
                    (cwd . 6)))))
 
+(ert-deftest term-sessions-test-scaled-column-widths-uses-base-total ()
+  (should (equal (term-sessions--scaled-column-widths
+                  '((name 2 1 3)
+                    (cwd 4 2 6))
+                  8)
+                 '((name . 3)
+                   (cwd . 5)))))
+
 (ert-deftest term-sessions-test-list-column-widths-scale-with-window ()
   (let ((narrow (term-sessions-list--column-widths 100))
         (wide (term-sessions-list--column-widths 180)))

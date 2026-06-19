@@ -41,14 +41,8 @@
          (base '((name 12 1 28)
                  (where 10 1 24)
                  (cwd 18 4 nil)
-                 (command 20 5 nil)))
-         (base-total (apply #'+ (mapcar #'cadr base))))
-    (term-sessions--distribute-extra-width
-     base (max 0 (- budget base-total)))))
-
-(defun term-sessions-consult--width (widths key)
-  "Return WIDTHS value for KEY."
-  (or (alist-get key widths) 10))
+                 (command 20 5 nil))))
+    (term-sessions--scaled-column-widths base budget)))
 
 (defun term-sessions-consult--display (entry)
   "Return aligned display candidate for ENTRY.
@@ -57,16 +51,16 @@ counter suffix so actions and annotations still resolve to the intended entry."
   (let* ((widths (term-sessions-consult--column-widths))
          (name (term-sessions--fit-column
                 (plist-get entry :name)
-                (term-sessions-consult--width widths 'name)))
+                (term-sessions--column-width widths 'name)))
          (where (term-sessions--fit-column
                  (plist-get entry :where)
-                 (term-sessions-consult--width widths 'where)))
+                 (term-sessions--column-width widths 'where)))
          (cwd (term-sessions--fit-column
                (abbreviate-file-name (or (plist-get entry :cwd) ""))
-               (term-sessions-consult--width widths 'cwd)))
+               (term-sessions--column-width widths 'cwd)))
          (command (term-sessions--fit-column
                    (or (plist-get entry :command) "")
-                   (term-sessions-consult--width widths 'command)))
+                   (term-sessions--column-width widths 'command)))
          (base (format "%s  %s  %s  %s" name where cwd command))
          (candidate base)
          (counter 2))

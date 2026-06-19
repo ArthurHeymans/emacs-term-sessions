@@ -105,29 +105,23 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
                  (where 8 2 28)
                  (project 6 1 24)
                  (cwd 10 4 nil)
-                 (command 8 5 nil)))
-         (base-total (apply #'+ (mapcar #'cadr base))))
-    (append (term-sessions--distribute-extra-width
-             base (max 0 (- variable-budget base-total)))
+                 (command 8 5 nil))))
+    (append (term-sessions--scaled-column-widths base variable-budget)
             '((created . 16)
               (updated . 16)
               (clients . 7)))))
 
-(defun term-sessions-list--width (widths key)
-  "Return WIDTHS value for KEY."
-  (or (alist-get key widths) 10))
-
 (defun term-sessions-list--format (&optional total-width)
   "Return a `tabulated-list-format' scaled for TOTAL-WIDTH."
   (let ((widths (term-sessions-list--column-widths total-width)))
-    (vector (list "Name" (term-sessions-list--width widths 'name) t)
-            (list "Where" (term-sessions-list--width widths 'where) t)
-            (list "Project" (term-sessions-list--width widths 'project) t)
-            (list "Created" (term-sessions-list--width widths 'created) t)
-            (list "Updated" (term-sessions-list--width widths 'updated) t)
-            (list "Clients" (term-sessions-list--width widths 'clients) t)
-            (list "Cwd" (term-sessions-list--width widths 'cwd) t)
-            (list "Command" (term-sessions-list--width widths 'command) t))))
+    (vector (list "Name" (term-sessions--column-width widths 'name) t)
+            (list "Where" (term-sessions--column-width widths 'where) t)
+            (list "Project" (term-sessions--column-width widths 'project) t)
+            (list "Created" (term-sessions--column-width widths 'created) t)
+            (list "Updated" (term-sessions--column-width widths 'updated) t)
+            (list "Clients" (term-sessions--column-width widths 'clients) t)
+            (list "Cwd" (term-sessions--column-width widths 'cwd) t)
+            (list "Command" (term-sessions--column-width widths 'command) t))))
 
 (defun term-sessions-list--update-format ()
   "Update `tabulated-list-format' for the current window width."

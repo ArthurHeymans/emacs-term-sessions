@@ -147,6 +147,19 @@ KEY-to-WIDTH values."
         (setq extra 0)))
     (mapcar (lambda (column) (cons (car column) (cadr column))) columns)))
 
+(defun term-sessions--scaled-column-widths (columns budget)
+  "Return column widths for COLUMNS scaled to BUDGET cells.
+COLUMNS is a list of (KEY WIDTH WEIGHT MAX-WIDTH), as accepted by
+`term-sessions--distribute-extra-width'."
+  (let ((base-total (apply #'+ (mapcar #'cadr columns))))
+    (term-sessions--distribute-extra-width
+     columns (max 0 (- budget base-total)))))
+
+(defun term-sessions--column-width (widths key &optional fallback)
+  "Return WIDTHS value for KEY, or FALLBACK.
+FALLBACK defaults to 10."
+  (or (alist-get key widths) fallback 10))
+
 (defun term-sessions--directory-key (directory)
   "Return backend identity key for DIRECTORY.
 Remote zmx sessions are keyed by TRAMP prefix rather than localname, because
