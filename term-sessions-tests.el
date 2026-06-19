@@ -1,6 +1,8 @@
 ;;; term-sessions-tests.el --- Tests for term-sessions -*- lexical-binding: t; -*-
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
+;;; Code:
+
 (require 'ert)
 (require 'cl-lib)
 (require 'term-sessions)
@@ -154,7 +156,7 @@
 (ert-deftest term-sessions-test-store-org-link-declines-unrelated-org-context ()
   (let (stored)
     (cl-letf (((symbol-function 'term-sessions--read-name)
-               (lambda (&rest _args) (error "should not prompt")))
+               (lambda (&rest _args) (error "Should not prompt")))
               ((symbol-function 'org-link-store-props)
                (lambda (&rest plist) (setq stored plist))))
       (should-not (term-sessions-store-org-link nil))
@@ -336,7 +338,7 @@
             (setq-local term-sessions-current-name "dev")
             (setq-local term-sessions-current-backend 'zmx))
           (cl-letf (((symbol-function 'term-sessions--zmx-with-stdin)
-                     (lambda (&rest _args) (error "should not call zmx send"))))
+                     (lambda (&rest _args) (error "Should not call zmx send"))))
             (should (eq (term-sessions--org-babel-send-now "dev" "echo hi")
                         'buffer))))
       (when (process-live-p process)

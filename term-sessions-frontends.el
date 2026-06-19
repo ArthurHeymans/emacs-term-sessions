@@ -53,7 +53,7 @@ This isolates Ghostel's private process variable from the frontend adapter."
 (defun term-sessions--ghostel-open-command (buffer-name command)
   "Open shell COMMAND in a Ghostel BUFFER-NAME."
   (unless (require 'ghostel nil t)
-    (user-error "ghostel is not available"))
+    (user-error "Ghostel is not available"))
   (let ((directory default-directory)
         (buffer (get-buffer-create buffer-name)))
     (pop-to-buffer buffer)
@@ -100,7 +100,7 @@ This isolates Ghostel's private process variable from the frontend adapter."
       (term-sessions--buffer-name-for-title name title))))
 
 (defun term-sessions--install-ghostel-title-tracking (name fallback-name)
-  "Keep Ghostel buffer title tracking while prefixing with session NAME."
+  "Keep Ghostel title tracking with session NAME and FALLBACK-NAME."
   (if (boundp 'ghostel-buffer-name-function)
       ;; Newer Ghostel calls this function for both title changes and OSC 7
       ;; directory reports.  On directory-only updates the title can be nil, so
@@ -120,7 +120,7 @@ This isolates Ghostel's private process variable from the frontend adapter."
 (defun term-sessions--open-vterm (name command buffer-name &optional spec)
   "Open COMMAND in vterm BUFFER-NAME for session NAME."
   (unless (require 'vterm nil t)
-    (user-error "vterm is not available"))
+    (user-error "Vterm is not available"))
   (let* ((remote-method (file-remote-p default-directory 'method))
          ;; vterm inserts `vterm-shell' after an `exec' in a shell wrapper.
          ;; Use a real shell command there so compound attach setup fragments
@@ -141,7 +141,7 @@ This isolates Ghostel's private process variable from the frontend adapter."
 (defun term-sessions--open-eat (name command buffer-name &optional spec)
   "Open COMMAND in eat BUFFER-NAME for session NAME."
   (unless (require 'eat nil t)
-    (user-error "eat is not available"))
+    (user-error "Eat is not available"))
   (let* ((directory default-directory)
          (base-name (term-sessions--terminal-buffer-base-name name buffer-name))
          (target-buffer (get-buffer-create (format "*%s*" base-name))))
@@ -260,7 +260,7 @@ COMMAND is the optional zmx creation command for missing sessions."
       (rename-buffer buffer-name t))))
 
 (defun term-sessions--read-session-entry (&optional prompt require-existing)
-  "Read a session entry, including already-open TRAMP remotes.
+  "Read a session entry with PROMPT, including already-open TRAMP remotes.
 When REQUIRE-EXISTING is non-nil, require the selected session to exist.
 Otherwise, a non-matching name creates a new entry in `default-directory', like
 `find-file' does for files."
@@ -295,11 +295,11 @@ Otherwise, a non-matching name creates a new entry in `default-directory', like
           :directory default-directory)))
 
 (defun term-sessions--read-existing-session-entry (&optional prompt)
-  "Read an existing session entry, including already-open TRAMP remotes."
+  "Read an existing session entry with PROMPT, including open TRAMP remotes."
   (term-sessions--read-session-entry prompt t))
 
 (defun term-sessions--pop-existing-session-buffer (name directory &optional backend)
-  "Pop to an existing term-session buffer for NAME at DIRECTORY.
+  "Pop to an existing term-session BACKEND buffer for NAME at DIRECTORY.
 Return the buffer when one was found, otherwise nil."
   (when-let ((buffer (term-sessions--session-buffer name directory backend)))
     (pop-to-buffer buffer)

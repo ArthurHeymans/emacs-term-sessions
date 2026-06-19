@@ -429,7 +429,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
             term-sessions-list--marked-entries))
 
 (defun term-sessions-list--restore-marks ()
-  "Restore marks in the visible tabulated list."
+  "Mark entries that are selected in the visible tabulated list."
   (save-excursion
     (goto-char (point-min))
     (while (not (eobp))
@@ -496,7 +496,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
       (funcall function entry))))
 
 (defun term-sessions-list--reprint ()
-  "Reprint current entries and restore marks."
+  "Reprint current entries and mark selected rows."
   (term-sessions-list--update-format)
   (setq tabulated-list-entries
         (term-sessions-list--filtered-entries term-sessions-list--all-entries))
@@ -580,7 +580,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
     (term-sessions-list-mark)))
 
 (defun term-sessions-list-toggle-all-marks ()
-  "Toggle marks for all visible sessions."
+  "Mark all visible sessions, or unmark them when all are already marked."
   (interactive)
   (let ((visible (mapcar #'car tabulated-list-entries)))
     (if (seq-every-p #'term-sessions-list--entry-marked-p visible)

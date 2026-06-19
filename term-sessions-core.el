@@ -169,7 +169,7 @@ sessions are likewise keyed to the local backend rather than to one cwd."
       'local))
 
 (defun term-sessions--session-buffer (name directory &optional backend)
-  "Return an existing term-sessions buffer for NAME at DIRECTORY, or nil."
+  "Return an existing term-sessions BACKEND buffer for NAME at DIRECTORY."
   (let ((directory-key (term-sessions--directory-key directory))
         (backend (or backend term-sessions-backend))
         found)

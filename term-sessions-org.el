@@ -393,10 +393,11 @@ the visible terminal.  Return `buffer' or `zmx' to describe the send path."
 
 ;;;###autoload
 (defun term-sessions-org-babel-shell (org-babel-execute-shell-fun body params)
-  "Send ob-shell BODY to a zmx shell when `:term-session' is present.
-If the session is missing, create it as an interactive user shell first.
-Then send the block text through the Emacs terminal buffer and return a
-clickable `term-session:' Org link."
+  "Call ORG-BABEL-EXECUTE-SHELL-FUN or send BODY to a zmx shell.
+PARAMS with `:term-session' enable zmx delivery.  If the session is missing,
+create it as an interactive user shell first.  Then send the block text
+through the Emacs terminal buffer and return a clickable `term-session:' Org
+link."
   (if-let ((name (term-sessions--org-babel-session-name params)))
       (term-sessions--org-babel-reassemble-result
        (term-sessions--org-babel-send name body)
@@ -405,9 +406,9 @@ clickable `term-session:' Org link."
 
 ;;;###autoload
 (defun term-sessions-org-babel-sh (org-babel-sh-evaluate-fun &rest args)
-  "Fallback around advice for `org-babel-sh-evaluate'.
-If `:term-session' reaches this lower-level function, send BODY to the terminal
-session and return a `term-session:' Org link."
+  "Call ORG-BABEL-SH-EVALUATE-FUN or send ARGS to a term session.
+If `:term-session' reaches this lower-level function, send BODY to the
+terminal session and return a `term-session:' Org link."
   (pcase-let ((`(,_session ,body ,params ,_stdin ,_cmdline) args))
     (if-let ((name (term-sessions--org-babel-session-name params)))
         (term-sessions--org-babel-send name body)

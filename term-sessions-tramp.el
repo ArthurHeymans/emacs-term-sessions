@@ -161,15 +161,15 @@ Return one of `local' or `tramp-process'."
       (_ (user-error "Unknown attach transport: %S" transport)))))
 
 (defun term-sessions--interactive-attach-command (name &optional command)
-  "Return local shell command for an interactive attach to NAME."
+  "Return local shell command for an interactive attach to NAME and COMMAND."
   (when (file-remote-p default-directory)
     (user-error "Remote interactive attaches must use TRAMP process APIs"))
   (term-sessions--attach-command name command))
 
 (defun term-sessions--ensure-interactive-attach-supported (&optional location frontend transport)
-  "Signal unless interactive attach is supported for `default-directory'.
-Local sessions are supported directly.  Remote sessions use the configured
-`term-sessions-attach-transport' resolution."
+  "Signal unless interactive attach is supported for LOCATION and FRONTEND.
+TRANSPORT defaults to `term-sessions-attach-transport'.  Local sessions are
+supported directly; remote sessions use configured transport resolution."
   (term-sessions--resolve-attach-transport location frontend transport))
 
 (defun term-sessions--project-name (&optional directory)
@@ -184,7 +184,8 @@ Local sessions are supported directly.  Remote sessions use the configured
           (file-name-nondirectory (directory-file-name root)))))))
 
 (defun term-sessions-spec-current (name &optional command frontend tags recreate-policy)
-  "Return a `term-sessions-spec' for NAME in `default-directory'."
+  "Return a `term-sessions-spec' for NAME in `default-directory'.
+COMMAND, FRONTEND, TAGS, and RECREATE-POLICY populate the spec metadata."
   (let* ((location (term-sessions--location default-directory))
          (cwd default-directory)
          (frontend (or frontend term-sessions-preferred-frontend)))

@@ -315,7 +315,7 @@ When REQUIRE-EXISTING is non-nil, complete against active sessions."
             (split-string-and-unquote command))))
 
 (defun term-sessions--login-shell-setup-command ()
-  "Return shell fragment that initializes SHELL from the passwd database."
+  "Return shell fragment to initialize SHELL from the passwd database."
   "shell=$(getent passwd \"$(id -un)\" | cut -d: -f7 2>/dev/null); [ -n \"$shell\" ] && SHELL=$shell; export SHELL")
 
 (defun term-sessions--attach-command (name &optional command prefer-login-shell)
