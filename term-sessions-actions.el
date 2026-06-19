@@ -42,6 +42,10 @@
     (define-key map (kbd "?") #'term-sessions-action-search-history)
     (define-key map (kbd "w") #'term-sessions-action-copy-name)
     (define-key map (kbd "a") #'term-sessions-action-copy-attach-command)
+    (define-key map (kbd "M-d") #'term-sessions-action-copy-cwd)
+    (define-key map (kbd "M-c") #'term-sessions-action-copy-command)
+    (define-key map (kbd "M-w") #'term-sessions-action-copy-where)
+    (define-key map (kbd "M-s") #'term-sessions-action-copy-spec-link)
     (define-key map (kbd "y") #'term-sessions-action-store-org-link)
     (define-key map (kbd "O") #'term-sessions-action-copy-org-link)
     (define-key map (kbd "i") #'term-sessions-action-insert-org-link)
@@ -68,10 +72,19 @@
          (default-directory (term-sessions--entry-directory entry)))
     (funcall function entry)))
 
+(defun term-sessions-action--entry-spec-link (entry)
+  "Return raw Org link target for term session ENTRY."
+  (let* ((default-directory (term-sessions-action--entry-cwd-directory entry))
+         (name (term-sessions--entry-name entry)))
+    (term-sessions--spec-org-link
+     (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
+
 (defun term-sessions-action--entry-org-link (entry)
   "Return bracketed Org link for term session ENTRY."
-  (let ((default-directory (term-sessions--entry-directory entry)))
-    (term-sessions--org-link-for-entry entry)))
+  (let* ((default-directory (term-sessions-action--entry-cwd-directory entry))
+         (name (term-sessions--entry-name entry)))
+    (term-sessions--org-link-for-spec
+     (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
 
 (defun term-sessions-action--entry-cwd-directory (entry)
   "Return an Emacs directory name for ENTRY's backend cwd."
@@ -273,6 +286,49 @@
                      (term-sessions--entry-name entry))))
        (kill-new command)
        (message "Copied attach command")))))
+
+;;;###autoload
+(defun term-sessions-action-copy-cwd (candidate)
+  "Copy term session CANDIDATE's current directory."
+  (interactive (list (term-sessions--read-name "Copy cwd for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (let ((directory (term-sessions-action--entry-cwd-directory entry)))
+       (kill-new directory)
+       (message "Copied session cwd: %s" directory)))))
+
+;;;###autoload
+(defun term-sessions-action-copy-command (candidate)
+  "Copy term session CANDIDATE's current command."
+  (interactive (list (term-sessions--read-name "Copy command for session: " t)))
+  (let* ((entry (term-sessions-action--entry candidate))
+         (command (or (plist-get entry :command) "")))
+    (kill-new command)
+    (message "Copied session command")))
+
+;;;###autoload
+(defun term-sessions-action-copy-where (candidate)
+  "Copy term session CANDIDATE's host/location label."
+  (interactive (list (term-sessions--read-name "Copy location for session: " t)))
+  (let* ((entry (term-sessions-action--entry candidate))
+         (where (or (plist-get entry :where)
+                    (if (file-remote-p (term-sessions--entry-directory entry))
+                        (file-remote-p (term-sessions--entry-directory entry))
+                      "local"))))
+    (kill-new where)
+    (message "Copied session location: %s" where)))
+
+;;;###autoload
+(defun term-sessions-action-copy-spec-link (candidate)
+  "Copy a raw term-session spec link for CANDIDATE."
+  (interactive (list (term-sessions--read-name "Copy spec link for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (let ((link (term-sessions-action--entry-spec-link entry)))
+       (kill-new link)
+       (message "Copied session spec link: %s" (term-sessions--entry-name entry))))))
 
 ;;;###autoload
 (defun term-sessions-action-store-org-link (candidate)

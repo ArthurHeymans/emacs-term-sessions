@@ -1121,6 +1121,22 @@
                      (wait "dev")
                      (wait-async "dev"))))))
 
+(ert-deftest term-sessions-test-action-copy-metadata ()
+  (let ((candidate "dev @ local /tmp/project")
+        (term-sessions-current-time-function (lambda () 0)))
+    (term-sessions--register-completion-entry
+     candidate (list :name "dev" :directory "/tmp/backend/" :cwd "/tmp/project/"
+                     :command "nvim main.c" :where "local"))
+    (term-sessions-action-copy-cwd candidate)
+    (should (equal (current-kill 0 t) "/tmp/project/"))
+    (term-sessions-action-copy-command candidate)
+    (should (equal (current-kill 0 t) "nvim main.c"))
+    (term-sessions-action-copy-where candidate)
+    (should (equal (current-kill 0 t) "local"))
+    (term-sessions-action-copy-spec-link candidate)
+    (should (string-match-p "\\`term-session:spec:.*name=dev" (current-kill 0 t)))
+    (should (string-match-p "cwd=%2Ftmp%2Fproject%2F" (current-kill 0 t)))))
+
 (ert-deftest term-sessions-test-action-copy-and-insert-org-link ()
   (let ((candidate "dev @ local /tmp/project")
         (term-sessions-current-time-function (lambda () 0)))
