@@ -13,11 +13,18 @@
 (require 'term-sessions-frontends)
 (require 'term-sessions-org)
 
+(declare-function consult-line "consult")
+
 (defvar term-sessions-action-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "o") #'term-sessions-action-open)
     (define-key map (kbd "k") #'term-sessions-action-kill)
     (define-key map (kbd "h") #'term-sessions-action-history)
+    (define-key map (kbd "H") #'term-sessions-action-history-full)
+    (define-key map (kbd "v") #'term-sessions-action-history-vt)
+    (define-key map (kbd "x") #'term-sessions-action-history-html)
+    (define-key map (kbd "Y") #'term-sessions-action-copy-history)
+    (define-key map (kbd "?") #'term-sessions-action-search-history)
     (define-key map (kbd "w") #'term-sessions-action-copy-name)
     (define-key map (kbd "a") #'term-sessions-action-copy-attach-command)
     (define-key map (kbd "y") #'term-sessions-action-store-org-link)
@@ -62,6 +69,56 @@
    candidate
    (lambda (entry)
      (term-sessions-history (term-sessions--entry-name entry)))))
+
+;;;###autoload
+(defun term-sessions-action-history-full (candidate)
+  "Show full history for term session CANDIDATE."
+  (interactive (list (term-sessions--read-name "Full history for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (term-sessions-history (term-sessions--entry-name entry) nil))))
+
+;;;###autoload
+(defun term-sessions-action-history-vt (candidate)
+  "Show VT-formatted history for term session CANDIDATE."
+  (interactive (list (term-sessions--read-name "VT history for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (term-sessions-history (term-sessions--entry-name entry) nil t nil))))
+
+;;;###autoload
+(defun term-sessions-action-history-html (candidate)
+  "Show HTML history for term session CANDIDATE."
+  (interactive (list (term-sessions--read-name "HTML history for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (term-sessions-history (term-sessions--entry-name entry) nil nil t))))
+
+;;;###autoload
+(defun term-sessions-action-copy-history (candidate)
+  "Copy full zmx history for term session CANDIDATE."
+  (interactive (list (term-sessions--read-name "Copy history for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (let ((history (term-sessions--zmx "history" (term-sessions--entry-name entry))))
+       (kill-new history)
+       (message "Copied history for session: %s" (term-sessions--entry-name entry))))))
+
+;;;###autoload
+(defun term-sessions-action-search-history (candidate)
+  "Search tail history for term session CANDIDATE with Consult when available."
+  (interactive (list (term-sessions--read-name "Search history for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (term-sessions-history (term-sessions--entry-name entry))
+     (if (require 'consult nil t)
+         (call-interactively #'consult-line)
+       (call-interactively #'isearch-forward)))))
 
 ;;;###autoload
 (defun term-sessions-action-copy-name (candidate)

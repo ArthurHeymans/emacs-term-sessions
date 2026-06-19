@@ -288,6 +288,7 @@
 
 (ert-deftest term-sessions-test-org-babel-sh-sends-to-existing-session ()
   (let ((term-sessions-org-babel-use-zmx-send-when-no-buffer t)
+        (term-sessions-current-time-function (lambda () 0))
         sent args)
     (cl-letf (((symbol-function 'term-sessions--active-p)
                (lambda (name) (equal name "dev")))
@@ -1037,6 +1038,33 @@
       (should (eq (plist-get source :annotate) 'term-sessions-consult--annotate))
       (should (eq (plist-get source :action) 'term-sessions-consult--open))
       (should (functionp (plist-get source :items))))))
+
+(ert-deftest term-sessions-test-action-history-variants-pass-format-flags ()
+  (let ((candidate "dev @ local /tmp/project")
+        calls)
+    (term-sessions--register-completion-entry
+     candidate (list :name "dev" :directory "/tmp/"))
+    (cl-letf (((symbol-function 'term-sessions-history)
+               (lambda (&rest args)
+                 (push args calls))))
+      (term-sessions-action-history-full candidate)
+      (term-sessions-action-history-vt candidate)
+      (term-sessions-action-history-html candidate))
+    (should (equal (nreverse calls)
+                   '(("dev" nil)
+                     ("dev" nil t nil)
+                     ("dev" nil nil t))))))
+
+(ert-deftest term-sessions-test-action-copy-history-copies-full-history ()
+  (let ((candidate "dev @ local /tmp/project"))
+    (term-sessions--register-completion-entry
+     candidate (list :name "dev" :directory "/tmp/"))
+    (cl-letf (((symbol-function 'term-sessions--zmx)
+               (lambda (&rest args)
+                 (should (equal args '("history" "dev")))
+                 "line 1\nline 2\n")))
+      (term-sessions-action-copy-history candidate))
+    (should (equal (current-kill 0 t) "line 1\nline 2\n"))))
 
 (ert-deftest term-sessions-test-action-copy-name-decodes-registered-candidate ()
   (let ((candidate "dev @ local /tmp/project"))
