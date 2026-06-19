@@ -209,10 +209,9 @@ Signals `user-error' on a non-zero exit status.  The current
 (defun term-sessions--zmx-list-sessions ()
   "Return detailed active zmx sessions as plists.
 Fields include at least :name, and may include :pid, :clients, :created,
-:start_dir, :cmd, and :updated-time."
-  (let ((output (condition-case nil
-                    (term-sessions--zmx "list")
-                  (error ""))))
+:start_dir, :cmd, and :updated-time.  Propagate `zmx list' errors so callers
+can distinguish failures from an empty session list."
+  (let ((output (term-sessions--zmx "list")))
     (delq nil
           (mapcar
            (lambda (line)

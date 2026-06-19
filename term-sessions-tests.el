@@ -33,6 +33,11 @@
                      '((:name "dev" :pid "123" :clients "2" :created "1781290004"
                        :start_dir "/repo" :cmd "/bin/bash -l" :updated-time 0)))))))
 
+(ert-deftest term-sessions-test-zmx-list-sessions-propagates-errors ()
+  (cl-letf (((symbol-function 'term-sessions--zmx)
+             (lambda (&rest _args) (error "TRAMP failed"))))
+    (should-error (term-sessions--zmx-list-sessions) :type 'error)))
+
 (ert-deftest term-sessions-test-zmx-list-sessions-adds-live-cwd-and-command ()
   (cl-letf (((symbol-function 'term-sessions--zmx)
              (lambda (&rest args)
