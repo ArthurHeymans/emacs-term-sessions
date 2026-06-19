@@ -121,6 +121,14 @@
     (should (equal (plist-get components :host) "example"))
     (should (equal (plist-get components :localname) "/tmp"))))
 
+(ert-deftest term-sessions-test-org-link-for-entry-builds-link-on-entry-directory ()
+  (let ((term-sessions-current-time-function (lambda () 0)))
+    (let ((link (term-sessions--org-link-for-entry
+                 (list :name "dev" :directory "/ssh:user@example:/tmp/project/"))))
+      (should (string-match-p "\\`\\[\\[term-session:spec:" link))
+      (should (string-match-p "name=dev" link))
+      (should (string-match-p "%2Fssh%3Auser%40example%3A%2Ftmp%2Fproject%2F" link)))))
+
 (ert-deftest term-sessions-test-store-org-link-description-starts-with-session-name ()
   (let ((default-directory "/ssh:user@example:/tmp/project")
         (term-sessions-current-time-function (lambda () 0))

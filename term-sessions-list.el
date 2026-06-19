@@ -540,20 +540,8 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   "Store or copy Org links for selected sessions."
   (interactive)
   (let ((links
-         (mapcar
-          (lambda (entry)
-            (let ((default-directory (term-sessions--entry-directory entry)))
-              (format "[[%s][%s]]"
-                      (term-sessions--spec-org-link
-                       (term-sessions-spec-current
-                        (term-sessions--entry-name entry)
-                        nil term-sessions-preferred-frontend))
-                      (term-sessions--org-link-description
-                       (term-sessions--entry-name entry)
-                       (term-sessions-spec-current
-                        (term-sessions--entry-name entry)
-                        nil term-sessions-preferred-frontend)))))
-          (term-sessions-list--selected-entries))))
+         (mapcar #'term-sessions--org-link-for-entry
+                 (term-sessions-list--selected-entries))))
     (kill-new (string-join links "\n"))
     (when (= (length links) 1)
       (let* ((entry (car (term-sessions-list--selected-entries)))

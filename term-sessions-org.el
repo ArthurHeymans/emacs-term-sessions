@@ -122,6 +122,22 @@ additional location context is included."
           (format "%s @ %s" name dir)))
     name))
 
+(defun term-sessions--org-link-for-spec (spec)
+  "Return a bracketed Org link for term session SPEC."
+  (let ((name (term-sessions-spec-name spec)))
+    (format "[[%s][%s]]"
+            (term-sessions--spec-org-link spec)
+            (term-sessions--org-link-description name spec))))
+
+(defun term-sessions--org-link-for-entry (entry &optional frontend)
+  "Return a bracketed Org link for session ENTRY.
+FRONTEND defaults to `term-sessions-preferred-frontend'."
+  (let* ((default-directory (term-sessions--entry-directory entry))
+         (name (term-sessions--entry-name entry))
+         (spec (term-sessions-spec-current
+                name nil (or frontend term-sessions-preferred-frontend))))
+    (term-sessions--org-link-for-spec spec)))
+
 ;;;###autoload
 (defun term-sessions-store-org-link (&optional name-or-interactive)
   "Store an Org link to a persistent session.
