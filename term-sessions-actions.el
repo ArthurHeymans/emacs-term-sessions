@@ -18,8 +18,17 @@
 (declare-function dired "dired" (dirname &optional switches))
 (declare-function project-compile "project" ())
 (declare-function project-current "project" (&optional prompt))
+(declare-function org-element-context "org-element")
+(declare-function org-element-property "org-element" (property element))
 (declare-function project-root "project" (project))
 (defvar compile-command)
+
+(defvar term-sessions-org-link-action-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "o") #'term-sessions-action-open-org-link)
+    (define-key map (kbd "w") #'term-sessions-action-copy-org-link-target)
+    map)
+  "Action map for term-session Org link targets.")
 
 (defvar term-sessions-action-map
   (let ((map (make-sparse-keymap)))
@@ -34,6 +43,8 @@
     (define-key map (kbd "w") #'term-sessions-action-copy-name)
     (define-key map (kbd "a") #'term-sessions-action-copy-attach-command)
     (define-key map (kbd "y") #'term-sessions-action-store-org-link)
+    (define-key map (kbd "O") #'term-sessions-action-copy-org-link)
+    (define-key map (kbd "i") #'term-sessions-action-insert-org-link)
     (define-key map (kbd "s") #'term-sessions-action-send-command)
     (define-key map (kbd "D") #'term-sessions-action-dired-cwd)
     (define-key map (kbd "P") #'term-sessions-action-dired-project)
@@ -56,6 +67,11 @@
   (let* ((entry (term-sessions-action--entry candidate))
          (default-directory (term-sessions--entry-directory entry)))
     (funcall function entry)))
+
+(defun term-sessions-action--entry-org-link (entry)
+  "Return bracketed Org link for term session ENTRY."
+  (let ((default-directory (term-sessions--entry-directory entry)))
+    (term-sessions--org-link-for-entry entry)))
 
 (defun term-sessions-action--entry-cwd-directory (entry)
   "Return an Emacs directory name for ENTRY's backend cwd."
@@ -268,6 +284,26 @@
      (term-sessions-store-org-link (term-sessions--entry-name entry)))))
 
 ;;;###autoload
+(defun term-sessions-action-copy-org-link (candidate)
+  "Copy a bracketed Org link for term session CANDIDATE."
+  (interactive (list (term-sessions--read-name "Copy Org link for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (let ((link (term-sessions-action--entry-org-link entry)))
+       (kill-new link)
+       (message "Copied Org link for session: %s" (term-sessions--entry-name entry))))))
+
+;;;###autoload
+(defun term-sessions-action-insert-org-link (candidate)
+  "Insert a bracketed Org link for term session CANDIDATE at point."
+  (interactive (list (term-sessions--read-name "Insert Org link for session: " t)))
+  (term-sessions-action--call
+   candidate
+   (lambda (entry)
+     (insert (term-sessions-action--entry-org-link entry)))))
+
+;;;###autoload
 (defun term-sessions-action-send-command (candidate command)
   "Send COMMAND to term session CANDIDATE."
   (interactive
@@ -278,9 +314,59 @@
    (lambda (entry)
      (term-sessions-send-command (term-sessions--entry-name entry) command))))
 
+;;;###autoload
+(defun term-sessions-action-open-org-link (link)
+  "Open term-session Org LINK."
+  (interactive "sTerm-session link: ")
+  (let ((path (if (string-prefix-p "term-session:" link)
+                  (substring link (length "term-session:"))
+                link)))
+    (term-sessions--open-org-path path nil)))
+
+;;;###autoload
+(defun term-sessions-action-copy-org-link-target (link)
+  "Copy term-session Org LINK target."
+  (interactive "sTerm-session link: ")
+  (kill-new link)
+  (message "Copied term-session link"))
+
+(defun term-sessions-action--org-element-link-target ()
+  "Return an Embark target for an Org term-session link at point."
+  (when (and (fboundp 'org-element-context)
+             (fboundp 'org-element-property))
+    (let ((context (org-element-context)))
+      (when (and (eq (car-safe context) 'link)
+                 (equal (org-element-property :type context) "term-session"))
+        (let ((begin (org-element-property :begin context))
+              (end (org-element-property :end context))
+              (path (org-element-property :path context)))
+          `(term-session-link ,(concat "term-session:" path) ,begin . ,end))))))
+
+(defun term-sessions-action--raw-link-target ()
+  "Return an Embark target for a raw term-session link at point."
+  (let ((line-beginning (line-beginning-position))
+        (line-end (line-end-position))
+        start end)
+    (save-excursion
+      (when (search-backward "term-session:spec:" line-beginning t)
+        (setq start (point))
+        (goto-char (match-end 0))
+        (skip-chars-forward "[:alnum:]%._~+=&@/:#-" line-end)
+        (setq end (point))))
+    (when (and start (<= start (point)) (<= (point) end))
+      `(term-session-link ,(buffer-substring-no-properties start end) ,start . ,end))))
+
+(defun term-sessions-action-org-link-target ()
+  "Return an Embark target for a term-session Org link at point."
+  (or (term-sessions-action--org-element-link-target)
+      (term-sessions-action--raw-link-target)))
+
 (with-eval-after-load 'embark
   (defvar embark-keymap-alist)
-  (add-to-list 'embark-keymap-alist '(term-session . term-sessions-action-map)))
+  (defvar embark-target-finders)
+  (add-to-list 'embark-keymap-alist '(term-session . term-sessions-action-map))
+  (add-to-list 'embark-keymap-alist '(term-session-link . term-sessions-org-link-action-map))
+  (add-to-list 'embark-target-finders #'term-sessions-action-org-link-target))
 
 (provide 'term-sessions-actions)
 ;;; term-sessions-actions.el ends here

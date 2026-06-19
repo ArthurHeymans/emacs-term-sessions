@@ -1121,6 +1121,36 @@
                      (wait "dev")
                      (wait-async "dev"))))))
 
+(ert-deftest term-sessions-test-action-copy-and-insert-org-link ()
+  (let ((candidate "dev @ local /tmp/project")
+        (term-sessions-current-time-function (lambda () 0)))
+    (term-sessions--register-completion-entry
+     candidate (list :name "dev" :directory "/tmp/project/"))
+    (term-sessions-action-copy-org-link candidate)
+    (should (string-match-p "\\`\\[\\[term-session:spec:.*name=dev" (current-kill 0 t)))
+    (with-temp-buffer
+      (term-sessions-action-insert-org-link candidate)
+      (should (equal (buffer-string) (current-kill 0 t))))))
+
+(ert-deftest term-sessions-test-action-org-link-target-finds-raw-link ()
+  (with-temp-buffer
+    (insert "see term-session:spec:backend=zmx&name=dev&cwd=%2Ftmp%2F now")
+    (search-backward "name=dev")
+    (let ((target (term-sessions-action-org-link-target)))
+      (should (eq (nth 0 target) 'term-session-link))
+      (should (equal (nth 1 target)
+                     "term-session:spec:backend=zmx&name=dev&cwd=%2Ftmp%2F"))
+      (should (equal (buffer-substring-no-properties (nth 2 target) (cdr (cddr target)))
+                     (nth 1 target))))))
+
+(ert-deftest term-sessions-test-action-open-org-link-strips-type-prefix ()
+  (let (opened)
+    (cl-letf (((symbol-function 'term-sessions--open-org-path)
+               (lambda (path arg)
+                 (setq opened (list path arg)))))
+      (term-sessions-action-open-org-link "term-session:spec:backend=zmx&name=dev"))
+    (should (equal opened '("spec:backend=zmx&name=dev" nil)))))
+
 (ert-deftest term-sessions-test-action-copy-name-decodes-registered-candidate ()
   (let ((candidate "dev @ local /tmp/project"))
     (term-sessions--register-completion-entry
