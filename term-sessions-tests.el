@@ -1167,6 +1167,18 @@
       (term-sessions-action-open-org-link "term-session:spec:backend=zmx&name=dev"))
     (should (equal opened '("spec:backend=zmx&name=dev" nil)))))
 
+(ert-deftest term-sessions-test-action-current-buffer-target-registers-session ()
+  (let ((term-sessions-current-time-function (lambda () 0)))
+    (with-temp-buffer
+      (setq default-directory "/tmp/project/")
+      (term-sessions--mark-buffer
+       "dev" (term-sessions-spec-current "dev" "make" 'term))
+      (should (equal (term-sessions-action-current-buffer-target)
+                     '(term-session . "dev")))
+      (should (equal (term-sessions--completion-entry "dev")
+                     (list :name "dev" :directory "/tmp/project/"
+                           :cwd "/tmp/project/" :command "make"))))))
+
 (ert-deftest term-sessions-test-action-copy-name-decodes-registered-candidate ()
   (let ((candidate "dev @ local /tmp/project"))
     (term-sessions--register-completion-entry

@@ -86,6 +86,17 @@
     (term-sessions--org-link-for-spec
      (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
 
+(defun term-sessions-action--current-buffer-entry ()
+  "Return a session entry for the current term-session buffer."
+  (when term-sessions-current-name
+    (list :name term-sessions-current-name
+          :directory default-directory
+          :cwd (or (and term-sessions-current-spec
+                        (term-sessions-spec-cwd term-sessions-current-spec))
+                   default-directory)
+          :command (and term-sessions-current-spec
+                        (term-sessions-spec-command term-sessions-current-spec)))))
+
 (defun term-sessions-action--entry-cwd-directory (entry)
   "Return an Emacs directory name for ENTRY's backend cwd."
   (let* ((backend-directory (term-sessions--entry-directory entry))
@@ -417,12 +428,20 @@
   (or (term-sessions-action--org-element-link-target)
       (term-sessions-action--raw-link-target)))
 
+(defun term-sessions-action-current-buffer-target ()
+  "Return an Embark target for the term session owned by the current buffer."
+  (when-let ((entry (term-sessions-action--current-buffer-entry)))
+    (let ((candidate (term-sessions--register-completion-entry
+                      (term-sessions--entry-name entry) entry)))
+      `(term-session . ,candidate))))
+
 (with-eval-after-load 'embark
   (defvar embark-keymap-alist)
   (defvar embark-target-finders)
   (add-to-list 'embark-keymap-alist '(term-session . term-sessions-action-map))
   (add-to-list 'embark-keymap-alist '(term-session-link . term-sessions-org-link-action-map))
-  (add-to-list 'embark-target-finders #'term-sessions-action-org-link-target))
+  (add-to-list 'embark-target-finders #'term-sessions-action-org-link-target)
+  (add-to-list 'embark-target-finders #'term-sessions-action-current-buffer-target 'append))
 
 (provide 'term-sessions-actions)
 ;;; term-sessions-actions.el ends here
