@@ -1066,6 +1066,38 @@
       (term-sessions-action-copy-history candidate))
     (should (equal (current-kill 0 t) "line 1\nline 2\n"))))
 
+(ert-deftest term-sessions-test-action-entry-cwd-preserves-remote-prefix ()
+  (should (equal (term-sessions-action--entry-cwd-directory
+                  (list :name "dev" :directory "/ssh:user@example:/" :cwd "/repo"))
+                 "/ssh:user@example:/repo/"))
+  (should (equal (term-sessions-action--entry-cwd-directory
+                  (list :name "dev" :directory "/tmp/backend/" :cwd "/repo"))
+                 "/repo/")))
+
+(ert-deftest term-sessions-test-action-directory-actions-use-session-cwd ()
+  (require 'project)
+  (let ((candidate "dev @ local /tmp/project")
+        calls)
+    (term-sessions--register-completion-entry
+     candidate (list :name "dev" :directory "/tmp/backend/" :cwd "/tmp/project/"))
+    (cl-letf (((symbol-function 'dired)
+               (lambda (directory &optional _switches)
+                 (push (cons 'dired directory) calls)))
+              ((symbol-function 'compile)
+               (lambda (command &optional _comint)
+                 (push (list 'compile default-directory command) calls)))
+              ((symbol-function 'project-compile)
+               (lambda ()
+                 (interactive)
+                 (push (cons 'project-compile default-directory) calls))))
+      (term-sessions-action-dired-cwd candidate)
+      (term-sessions-action-compile-cwd candidate "make check")
+      (term-sessions-action-project-compile candidate))
+    (should (equal (nreverse calls)
+                   '((dired . "/tmp/project/")
+                     (compile "/tmp/project/" "make check")
+                     (project-compile . "/tmp/project/"))))))
+
 (ert-deftest term-sessions-test-action-run-and-wait-call-zmx-helpers ()
   (let ((candidate "dev @ local /tmp/project")
         calls)
