@@ -87,6 +87,19 @@
     (term-sessions--org-link-for-spec
      (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
 
+(defun term-sessions-action--read-target-session-entry (prompt)
+  "Read an existing session entry for target action using PROMPT."
+  (if (fboundp 'term-sessions--read-existing-session-entry)
+      (term-sessions--read-existing-session-entry prompt)
+    (list :name (term-sessions--read-name prompt t)
+          :directory default-directory)))
+
+(defun term-sessions-action--with-target-session (prompt function)
+  "Read a target session with PROMPT and call FUNCTION with its entry."
+  (let* ((entry (term-sessions-action--read-target-session-entry prompt))
+         (default-directory (term-sessions--entry-directory entry)))
+    (funcall function entry)))
+
 (defun term-sessions-action--current-buffer-entry ()
   "Return a session entry for the current term-session buffer."
   (when term-sessions-current-name
@@ -383,6 +396,44 @@
      (term-sessions-send-command (term-sessions--entry-name entry) command))))
 
 ;;;###autoload
+(defun term-sessions-action-send-text-to-session (text)
+  "Send raw TEXT to a selected term session."
+  (interactive
+   (list (if (use-region-p)
+             (buffer-substring-no-properties (region-beginning) (region-end))
+           (read-string "Text to send: "))))
+  (term-sessions-action--with-target-session
+   "Send text to session: "
+   (lambda (entry)
+     (term-sessions-send (term-sessions--entry-name entry) text))))
+
+;;;###autoload
+(defun term-sessions-action-send-command-text-to-session (text)
+  "Send TEXT as a shell command to a selected term session."
+  (interactive (list (read-string "Command: ")))
+  (term-sessions-action--with-target-session
+   "Send command to session: "
+   (lambda (entry)
+     (term-sessions-send-command (term-sessions--entry-name entry) text))))
+
+;;;###autoload
+(defun term-sessions-action-send-file-path-to-session (file)
+  "Send shell-quoted FILE path to a selected term session."
+  (interactive "fFile path to send: ")
+  (term-sessions-action-send-text-to-session (shell-quote-argument file)))
+
+;;;###autoload
+(defun term-sessions-action-run-file-in-session (file)
+  "Run shell-quoted FILE path in a selected term session."
+  (interactive "fFile to run: ")
+  (term-sessions-action--with-target-session
+   "Run file in session: "
+   (lambda (entry)
+     (term-sessions-run (term-sessions--entry-name entry)
+                        (shell-quote-argument file)
+                        nil))))
+
+;;;###autoload
 (defun term-sessions-action-open-org-link (link)
   "Open term-session Org LINK."
   (interactive "sTerm-session link: ")
@@ -451,8 +502,18 @@
       `(term-session . ,candidate))))
 
 (with-eval-after-load 'embark
+  (defvar embark-expression-map)
+  (defvar embark-file-map)
+  (defvar embark-identifier-map)
   (defvar embark-keymap-alist)
+  (defvar embark-region-map)
   (defvar embark-target-finders)
+  (define-key embark-region-map (kbd "S") #'term-sessions-action-send-text-to-session)
+  (define-key embark-region-map (kbd "C") #'term-sessions-action-send-command-text-to-session)
+  (define-key embark-file-map (kbd "S") #'term-sessions-action-send-file-path-to-session)
+  (define-key embark-file-map (kbd "R") #'term-sessions-action-run-file-in-session)
+  (define-key embark-expression-map (kbd "S") #'term-sessions-action-send-command-text-to-session)
+  (define-key embark-identifier-map (kbd "S") #'term-sessions-action-send-command-text-to-session)
   (add-to-list 'embark-keymap-alist '(term-session . term-sessions-action-map))
   (add-to-list 'embark-keymap-alist '(term-session-link . term-sessions-org-link-action-map))
   (add-to-list 'embark-target-finders #'term-sessions-action-org-link-target)
