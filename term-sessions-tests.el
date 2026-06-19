@@ -1167,6 +1167,17 @@
       (term-sessions-action-open-org-link "term-session:spec:backend=zmx&name=dev"))
     (should (equal opened '("spec:backend=zmx&name=dev" nil)))))
 
+(ert-deftest term-sessions-test-action-list-row-target-registers-entry ()
+  (let ((entry (list :name "dev" :directory "/tmp/" :where "local" :cwd "/tmp/project")))
+    (cl-letf (((symbol-function 'derived-mode-p)
+               (lambda (&rest modes)
+                 (memq 'term-sessions-list-mode modes)))
+              ((symbol-function 'tabulated-list-get-id)
+               (lambda () entry)))
+      (let ((target (term-sessions-action-list-row-target)))
+        (should (eq (car target) 'term-session))
+        (should (equal (term-sessions--completion-entry (cdr target)) entry))))))
+
 (ert-deftest term-sessions-test-action-current-buffer-target-registers-session ()
   (let ((term-sessions-current-time-function (lambda () 0)))
     (with-temp-buffer

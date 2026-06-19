@@ -21,6 +21,7 @@
 (declare-function org-element-context "org-element")
 (declare-function org-element-property "org-element" (property element))
 (declare-function project-root "project" (project))
+(declare-function tabulated-list-get-id "tabulated-list")
 (defvar compile-command)
 
 (defvar term-sessions-org-link-action-map
@@ -428,6 +429,20 @@
   (or (term-sessions-action--org-element-link-target)
       (term-sessions-action--raw-link-target)))
 
+(defun term-sessions-action-list-row-target ()
+  "Return an Embark target for the `term-sessions-list-mode' row at point."
+  (when (and (derived-mode-p 'term-sessions-list-mode)
+             (fboundp 'tabulated-list-get-id))
+    (when-let ((entry (tabulated-list-get-id)))
+      (let ((candidate (term-sessions--register-completion-entry
+                        (format "%s @ %s %s"
+                                (term-sessions--entry-name entry)
+                                (or (plist-get entry :where) "")
+                                (abbreviate-file-name
+                                 (or (plist-get entry :cwd) "")))
+                        entry)))
+        `(term-session . ,candidate)))))
+
 (defun term-sessions-action-current-buffer-target ()
   "Return an Embark target for the term session owned by the current buffer."
   (when-let ((entry (term-sessions-action--current-buffer-entry)))
@@ -441,6 +456,7 @@
   (add-to-list 'embark-keymap-alist '(term-session . term-sessions-action-map))
   (add-to-list 'embark-keymap-alist '(term-session-link . term-sessions-org-link-action-map))
   (add-to-list 'embark-target-finders #'term-sessions-action-org-link-target)
+  (add-to-list 'embark-target-finders #'term-sessions-action-list-row-target 'append)
   (add-to-list 'embark-target-finders #'term-sessions-action-current-buffer-target 'append))
 
 (provide 'term-sessions-actions)
