@@ -313,40 +313,18 @@ session to already exist according to zmx in the entry/current directory."
           (term-sessions--ensure-zmx)
           (let* ((frontend (or frontend term-sessions-preferred-frontend))
                  (spec (term-sessions-spec-current name command frontend))
-                 (location (term-sessions-spec-location spec))
-                 (transport (term-sessions--ensure-interactive-attach-supported location frontend)))
+                 (transport (term-sessions--ensure-interactive-attach-supported
+                             (term-sessions-spec-location spec) frontend)))
             (unless (or allow-create (term-sessions--active-p name))
               (user-error "No active zmx session named `%s'" name))
             (let* ((buffer-name (term-sessions--buffer-name-for-spec spec))
-                   (requested-transport term-sessions-attach-transport)
                    (attach-command (unless (eq transport 'tramp-process)
-                                     (term-sessions--interactive-attach-command name command)))
-                   ;; SSH-wrapper attach is implemented as a local ssh command.
-                   ;; Keep command-string terminal frontends local so they do not
-                   ;; try to use their own TRAMP launching paths for the wrapper
-                   ;; itself.
-                   (default-directory (if (eq transport 'ssh-wrapper)
-                                          (expand-file-name "~/")
-                                        default-directory)))
+                                     (term-sessions--interactive-attach-command name command))))
               (pcase transport
                 ('tramp-process
-                 (condition-case err
-                     (term-sessions--open-tramp-process
-                      name command frontend buffer-name spec)
-                   (error
-                    (if (and (eq requested-transport 'auto)
-                             (term-sessions--simple-ssh-location-p location))
-                        (let ((fallback-command (term-sessions--interactive-attach-command name command))
-                              (default-directory (expand-file-name "~/")))
-                          (when-let ((buffer (get-buffer buffer-name)))
-                            (unless (get-buffer-process buffer)
-                              (kill-buffer buffer)))
-                          (message "term-sessions: TRAMP attach failed (%s); falling back to SSH wrapper"
-                                   (error-message-string err))
-                          (term-sessions--open-command-frontend
-                           name fallback-command frontend buffer-name spec))
-                      (signal (car err) (cdr err))))))
-                ((or 'local 'ssh-wrapper)
+                 (term-sessions--open-tramp-process
+                  name command frontend buffer-name spec))
+                ('local
                  (term-sessions--open-command-frontend
                   name attach-command frontend buffer-name spec)))))))))
 

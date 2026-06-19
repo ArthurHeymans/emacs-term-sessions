@@ -73,11 +73,13 @@
 
 ;;;###autoload
 (defun term-sessions-action-copy-attach-command (candidate)
-  "Copy an attach command for term session CANDIDATE."
+  "Copy a local attach command for term session CANDIDATE."
   (interactive (list (term-sessions--read-name "Copy attach command for session: " t)))
   (term-sessions-action--call
    candidate
    (lambda (entry)
+     (when (file-remote-p default-directory)
+       (user-error "Remote term sessions attach through TRAMP; no local command is available to copy"))
      (let ((command (term-sessions--interactive-attach-command
                      (term-sessions--entry-name entry))))
        (kill-new command)

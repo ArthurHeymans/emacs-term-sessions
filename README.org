@@ -108,10 +108,9 @@ Interactive attach is controlled by =term-sessions-attach-transport=:
 #+begin_src emacs-lisp
 (setq term-sessions-attach-transport 'auto)          ; default
 (setq term-sessions-attach-transport 'tramp-process) ; force TRAMP process attach
-(setq term-sessions-attach-transport 'ssh-wrapper)   ; force local SSH wrapper
 #+end_src
 
-Local directories attach locally.  For remote directories, =term=, =eat=, =ghostel=, =vterm=, and =shell= prefer TRAMP process attaches, including =/rpc:= when tramp-rpc provides that method and TRAMP multi-hop paths.  The local SSH wrapper remains as an explicit fallback and is also used automatically when an =auto= TRAMP attach fails for a simple SSH-like path.
+Local directories attach locally.  For remote directories, =term=, =eat=, =ghostel=, =vterm=, and =shell= use TRAMP process attaches, including =/rpc:= when tramp-rpc provides that method and TRAMP multi-hop paths.
 
 =term-sessions-list= can include already-open TRAMP remotes.  If a remote query fails, the list skips that remote for =term-sessions-list-failed-remote-retry-delay= seconds to avoid repeated TRAMP reconnect prompts on every refresh.  Press =R= in the list buffer, or run =M-x term-sessions-list-clear-failed-remotes=, to force retry after fixing the connection.
 
@@ -154,7 +153,7 @@ usable =:session= name is present, =:term-session t= uses
 
 * Frontends
 
-=vterm=, =eat=, =ghostel=, =term=, and =shell= are implemented for local interactive attach.  For remote directories they prefer TRAMP/tramp-rpc process attaches.
+=vterm=, =eat=, =ghostel=, =term=, and =shell= are implemented for local interactive attach.  For remote directories they use TRAMP/tramp-rpc process attaches.
 
 =ghostel= uses its native TRAMP-aware =ghostel-exec= path and keeps Ghostel title/directory tracking while prefixing buffer names with the term session name.  =term-sessions-ghostel-open-function= remains customizable for users who want a different Ghostel opener.
 

@@ -14,24 +14,10 @@
 
 (declare-function project-root "project" (project))
 
-(defcustom term-sessions-ssh-program "ssh"
-  "Program used for SSH-backed remote interactive attaches."
-  :group 'term-sessions
-  :type 'string)
-
-(defcustom term-sessions-ssh-tramp-methods '("ssh" "scp" "sshx" "rsync" "rpc")
-  "TRAMP methods eligible for the local SSH-wrapper fallback.
-The `rpc' method is included as a compatibility fallback: control operations
-and preferred interactive attaches still use tramp-rpc, while `ssh-wrapper'
-can attach with a plain local ssh command to the same final host."
-  :group 'term-sessions
-  :type '(repeat string))
-
 (defcustom term-sessions-attach-transport 'auto
   "Transport used for interactive zmx attaches.
 The value `auto' prefers local execution for local directories, TRAMP process
-APIs for remote directories when the selected frontend supports them, and the
-local SSH wrapper as a compatibility fallback for simple SSH TRAMP paths.
+APIs for remote directories when the selected frontend supports them.
 
 The value `tramp-rpc' is an alias for TRAMP process attach that additionally
 requires the current TRAMP method to be `rpc'."
@@ -39,15 +25,12 @@ requires the current TRAMP method to be `rpc'."
   :type '(choice (const :tag "Auto" auto)
                  (const :tag "Local process" local)
                  (const :tag "TRAMP process" tramp-process)
-                 (const :tag "TRAMP RPC process" tramp-rpc)
-                 (const :tag "Local SSH wrapper" ssh-wrapper)))
+                 (const :tag "TRAMP RPC process" tramp-rpc)))
 
 (defcustom term-sessions-tramp-process-frontends '(term eat ghostel vterm shell)
   "Frontends that can attach through TRAMP process APIs.
 These frontends start the attach command while `default-directory' is remote,
-so TRAMP or tramp-rpc owns the transport.  The local SSH wrapper remains
-available as an explicit fallback via `term-sessions-attach-transport' and as
-automatic fallback when `auto' TRAMP attach fails for a simple SSH-like path."
+so TRAMP or tramp-rpc owns the transport."
   :group 'term-sessions
   :type '(repeat symbol))
 
@@ -140,48 +123,13 @@ localname, prefix, and directory."
             :prefix (term-sessions-location-prefix location)
             :directory (term-sessions-location-directory location)))))
 
-(defun term-sessions--ssh-remote-info (&optional directory)
-  "Return SSH-capable remote info for DIRECTORY, or signal `user-error'."
-  (let ((info (term-sessions--remote-info directory)))
-    (unless info
-      (user-error "Not in a remote default-directory"))
-    (unless (member (plist-get info :method) term-sessions-ssh-tramp-methods)
-      (user-error "Interactive attach is unsupported for TRAMP method `%s'"
-                  (plist-get info :method)))
-    info))
-
-(defun term-sessions--ssh-attach-command (info name &optional command)
-  "Return local ssh command to attach to remote zmx session NAME using INFO."
-  (when (plist-get info :hop)
-    (user-error "SSH wrapper attach does not support multi-hop TRAMP paths; use `tramp-process' transport"))
-  (let* ((remote-cwd (plist-get info :localname))
-         ;; zmx otherwise falls back to /bin/sh in some non-interactive ssh
-         ;; environments.  Let the remote shell expand $SHELL after setting
-         ;; it from passwd, so new sessions use the user's login shell.
-         (attach-command (term-sessions--attach-command name command t))
-         (remote-command
-          (concat "cd " (shell-quote-argument remote-cwd)
-                  " && " attach-command)))
-    (term-sessions--command-string term-sessions-ssh-program
-                                   (append (list "-t" "-t")
-                                           (when-let ((port (plist-get info :port)))
-                                             (list "-p" port))
-                                           (list (plist-get info :target)
-                                                 remote-command)))))
-
 (defun term-sessions--frontend-supports-tramp-process-p (frontend)
   "Return non-nil if FRONTEND can run an attach through TRAMP process APIs."
   (memq frontend term-sessions-tramp-process-frontends))
 
-(defun term-sessions--simple-ssh-location-p (location)
-  "Return non-nil if LOCATION is an SSH-like TRAMP path without hops."
-  (and (term-sessions-location-remote-p location)
-       (member (term-sessions-location-method location) term-sessions-ssh-tramp-methods)
-       (not (term-sessions-location-hop location))))
-
 (defun term-sessions--resolve-attach-transport (&optional location frontend transport)
   "Resolve TRANSPORT for LOCATION and FRONTEND.
-Return one of `local', `tramp-process', or `ssh-wrapper'."
+Return one of `local' or `tramp-process'."
   (let* ((location (or location (term-sessions--location)))
          (frontend (or frontend term-sessions-preferred-frontend))
          (transport (or transport term-sessions-attach-transport)))
@@ -190,21 +138,13 @@ Return one of `local', `tramp-process', or `ssh-wrapper'."
        (cond
         ((not (term-sessions-location-remote-p location)) 'local)
         ((term-sessions--frontend-supports-tramp-process-p frontend) 'tramp-process)
-        ((term-sessions--simple-ssh-location-p location) 'ssh-wrapper)
-        ((string= (term-sessions-location-method location) "rpc")
-         (user-error "Frontend `%s' cannot attach to /rpc: through TRAMP process APIs" frontend))
         (t
-         (user-error "Interactive attach is unsupported for TRAMP method `%s' with frontend `%s'"
-                     (term-sessions-location-method location) frontend))))
+         (user-error "Frontend `%s' cannot attach through TRAMP process APIs" frontend))))
       ('local
        (when (term-sessions-location-remote-p location)
          (user-error "Local attach transport cannot be used for remote directory `%s'"
                      (term-sessions-location-directory location)))
        'local)
-      ('ssh-wrapper
-       (unless (term-sessions--simple-ssh-location-p location)
-         (user-error "SSH wrapper attach only supports simple SSH-like TRAMP paths"))
-       'ssh-wrapper)
       ('tramp-rpc
        (unless (and (term-sessions-location-remote-p location)
                     (string= (term-sessions-location-method location) "rpc"))
@@ -221,13 +161,10 @@ Return one of `local', `tramp-process', or `ssh-wrapper'."
       (_ (user-error "Unknown attach transport: %S" transport)))))
 
 (defun term-sessions--interactive-attach-command (name &optional command)
-  "Return shell command for an interactive attach to NAME.
-Local sessions run zmx directly.  SSH TRAMP sessions are opened by running a
-local ssh command that executes zmx on the remote host."
-  (if (file-remote-p default-directory)
-      (term-sessions--ssh-attach-command (term-sessions--ssh-remote-info)
-                                         name command)
-    (term-sessions--attach-command name command)))
+  "Return local shell command for an interactive attach to NAME."
+  (when (file-remote-p default-directory)
+    (user-error "Remote interactive attaches must use TRAMP process APIs"))
+  (term-sessions--attach-command name command))
 
 (defun term-sessions--ensure-interactive-attach-supported (&optional location frontend transport)
   "Signal unless interactive attach is supported for `default-directory'.
