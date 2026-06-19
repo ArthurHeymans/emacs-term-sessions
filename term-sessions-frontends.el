@@ -44,6 +44,12 @@ This is intentionally pluggable because ghostel APIs are still evolving."
   :group 'term-sessions
   :type '(choice (const :tag "Disabled" nil) function))
 
+(defun term-sessions--ghostel-live-process-p ()
+  "Return non-nil when the current Ghostel buffer has a live process.
+This isolates Ghostel's private process variable from the frontend adapter."
+  (and (boundp 'ghostel--process)
+       (process-live-p ghostel--process)))
+
 (defun term-sessions--ghostel-open-command (buffer-name command)
   "Open shell COMMAND in a Ghostel BUFFER-NAME."
   (unless (require 'ghostel nil t)
@@ -53,8 +59,7 @@ This is intentionally pluggable because ghostel APIs are still evolving."
     (pop-to-buffer buffer)
     (with-current-buffer buffer
       (setq default-directory directory)
-      (if (and (boundp 'ghostel--process)
-               (process-live-p ghostel--process))
+      (if (term-sessions--ghostel-live-process-p)
           (ghostel-semi-char-mode)
         (ghostel-exec buffer "/bin/sh" (list "-lc" command))
         (rename-buffer buffer-name t)

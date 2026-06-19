@@ -33,6 +33,12 @@
 (defvar term-sessions-consult--entry-table (make-hash-table :test #'equal)
   "Session entries keyed by Consult candidate string.")
 
+(defun term-sessions-consult--read (sources &rest args)
+  "Read a term session from Consult SOURCES with ARGS.
+Consult's multi-source entry point is private; keep the direct dependency in
+one adapter so API churn is localized."
+  (apply #'consult--multi sources args))
+
 (defun term-sessions-consult--column-widths (&optional total-width)
   "Return responsive Consult candidate column widths for TOTAL-WIDTH."
   (let* ((separators 6)
@@ -230,10 +236,10 @@ If the selected name does not match an existing session, create and open it in
   (interactive)
   (unless (require 'consult nil t)
     (user-error "Install Consult to use `term-sessions-consult-session'"))
-  (let ((selected (consult--multi term-sessions-consult-sources
-                                  :prompt "Term session: "
-                                  :require-match nil
-                                  :sort nil)))
+  (let ((selected (term-sessions-consult--read term-sessions-consult-sources
+                                               :prompt "Term session: "
+                                               :require-match nil
+                                               :sort nil)))
     (unless (plist-get (cdr selected) :match)
       (term-sessions-consult--open-new (car selected)))))
 

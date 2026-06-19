@@ -263,11 +263,27 @@ through the normal visible frontend and return `created'."
        name nil term-sessions-preferred-frontend t))
     'created))
 
+(defun term-sessions--ghostel-buffer-process ()
+  "Return the current Ghostel buffer's live process, or nil.
+This isolates Ghostel's private process storage from Babel send logic."
+  (when (and (boundp 'ghostel--process)
+             (process-live-p ghostel--process))
+    ghostel--process))
+
+(defun term-sessions--ghostel-copy-mode-p ()
+  "Return non-nil when Ghostel is in a non-input mode."
+  (and (boundp 'ghostel--input-mode)
+       (memq ghostel--input-mode '(copy emacs))))
+
+(defun term-sessions--ghostel-send-string (input)
+  "Send INPUT through Ghostel's native input path."
+  (ghostel--send-string input))
+
 (defun term-sessions--org-babel-buffer-process (buffer)
   "Return BUFFER's live terminal process, or nil."
   (with-current-buffer buffer
     (let ((process (or (get-buffer-process (current-buffer))
-                       (and (boundp 'ghostel--process) ghostel--process))))
+                       (term-sessions--ghostel-buffer-process))))
       (when (and process (process-live-p process))
         process))))
 
@@ -288,11 +304,10 @@ through the normal visible frontend and return `created'."
     ;; user input looking delayed until the normal redraw timer catches up.  If
     ;; the user left the buffer in copy/emacs mode, return to the normal input
     ;; mode before injecting text so live redraws are not frozen.
-    (when (and (boundp 'ghostel--input-mode)
-               (memq ghostel--input-mode '(copy emacs))
+    (when (and (term-sessions--ghostel-copy-mode-p)
                (fboundp 'ghostel-semi-char-mode))
       (ghostel-semi-char-mode))
-    (ghostel--send-string input))
+    (term-sessions--ghostel-send-string input))
    ((and (derived-mode-p 'term-mode)
          (fboundp 'term-send-raw-string))
     (term-send-raw-string input))
