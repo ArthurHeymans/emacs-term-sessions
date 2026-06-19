@@ -585,6 +585,28 @@
   (should (equal (term-sessions--term-buffer-base-name "dev")
                  "term-session:dev")))
 
+(ert-deftest term-sessions-test-terminal-buffer-base-name-preserves-location ()
+  (should (equal (term-sessions--terminal-buffer-base-name
+                  "dev" "*term-session:dev: [ssh:host] /repo*")
+                 "term-session:dev: [ssh:host] /repo")))
+
+(ert-deftest term-sessions-test-open-term-uses-buffer-name-base ()
+  (let ((buffer (generate-new-buffer " *term-sessions-test-term-open*"))
+        make-term-name)
+    (unwind-protect
+        (cl-letf (((symbol-function 'make-term)
+                   (lambda (name &rest _args)
+                     (setq make-term-name name)
+                     buffer))
+                  ((symbol-function 'pop-to-buffer) #'ignore)
+                  ((symbol-function 'term-mode) #'ignore)
+                  ((symbol-function 'term-char-mode) #'ignore))
+          (term-sessions--open-term
+           "dev" "zmx attach dev" "*term-session:dev: [ssh:host] /repo*")
+          (should (equal make-term-name "term-session:dev: [ssh:host] /repo")))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest term-sessions-test-list-skips-recently-failed-remotes ()
   (let ((term-sessions-list--failed-remotes (make-hash-table :test #'equal))
         (term-sessions-list-failed-remote-retry-delay 300)

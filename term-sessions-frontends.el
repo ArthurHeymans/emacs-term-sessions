@@ -138,7 +138,7 @@ This is intentionally pluggable because ghostel APIs are still evolving."
   (unless (require 'eat nil t)
     (user-error "eat is not available"))
   (let* ((directory default-directory)
-         (base-name (string-trim buffer-name "\\*" "\\*"))
+         (base-name (term-sessions--terminal-buffer-base-name name buffer-name))
          (target-buffer (get-buffer-create (format "*%s*" base-name))))
     (with-current-buffer target-buffer
       (setq default-directory directory))
@@ -148,9 +148,18 @@ This is intentionally pluggable because ghostel APIs are still evolving."
         (eat-semi-char-mode)
         (term-sessions--mark-buffer name spec)))))
 
-(defun term-sessions--open-term (name command _buffer-name &optional spec)
-  "Open COMMAND in built-in term buffer for session NAME."
-  (let ((buffer (apply #'make-term (term-sessions--term-buffer-base-name name)
+(defun term-sessions--terminal-buffer-base-name (name buffer-name)
+  "Return a terminal base name for NAME from BUFFER-NAME.
+Terminal constructors such as `make-term' and `eat-make' add their own
+surrounding stars, so BUFFER-NAME is stripped when present."
+  (if (term-sessions--string-or-nil buffer-name)
+      (string-trim buffer-name "\\*" "\\*")
+    (term-sessions--term-buffer-base-name name)))
+
+(defun term-sessions--open-term (name command buffer-name &optional spec)
+  "Open COMMAND in built-in term BUFFER-NAME for session NAME."
+  (let ((buffer (apply #'make-term (term-sessions--terminal-buffer-base-name
+                                    name buffer-name)
                        shell-file-name nil
                        (list shell-command-switch command))))
     (pop-to-buffer buffer)
@@ -158,12 +167,13 @@ This is intentionally pluggable because ghostel APIs are still evolving."
     (term-char-mode)
     (term-sessions--mark-buffer name spec)))
 
-(defun term-sessions--open-term-process (name program args _buffer-name &optional spec)
+(defun term-sessions--open-term-process (name program args buffer-name &optional spec)
   "Open PROGRAM with ARGS in a built-in term buffer for session NAME.
 This starts PROGRAM with `start-file-process' and term-mode plumbing rather
 than wrapping the attach in a shell command, so a remote `default-directory'
 can be handled by TRAMP or tramp-rpc process file handlers."
-  (let* ((buffer-name (format "*%s*" (term-sessions--term-buffer-base-name name)))
+  (let* ((base-name (term-sessions--terminal-buffer-base-name name buffer-name))
+         (buffer-name (format "*%s*" base-name))
          (directory default-directory)
          (buffer (get-buffer-create buffer-name)))
     (unless (term-check-proc buffer)
@@ -189,7 +199,7 @@ can be handled by TRAMP or tramp-rpc process file handlers."
                (inhibit-eol-conversion t)
                (coding-system-for-read 'binary)
                (proc (apply #'start-file-process
-                            (term-sessions--term-buffer-base-name name)
+                            base-name
                             buffer program args)))
           (setq-local term-ptyp process-connection-type)
           (goto-char (point-max))
