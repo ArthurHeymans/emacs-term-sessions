@@ -7,6 +7,8 @@
 (require 'cl-lib)
 (require 'term-sessions)
 
+(defvar ghostel-buffer-name-function)
+
 (ert-deftest term-sessions-test-attach-command-quotes-args ()
   (let ((term-sessions-zmx-program "zmx"))
     (should (equal (term-sessions--attach-command "dev" nil)
@@ -634,6 +636,41 @@
                    "*term-session:dev: fallback*"))
     (should (equal (funcall ghostel-buffer-name-function "remote title")
                    "*term-session:dev: remote title*"))))
+
+(ert-deftest term-sessions-test-ghostel-open-seeds-safe-name-function-before-exec ()
+  (let ((buffer-name "*term-session:dev: [ssh:host] /repo*")
+        (had-ghostel-buffer-name-function (boundp 'ghostel-buffer-name-function))
+        (old-ghostel-buffer-name-function (and (boundp 'ghostel-buffer-name-function)
+                                               ghostel-buffer-name-function))
+        seen
+        buffer)
+    (unwind-protect
+        (progn
+          (set 'ghostel-buffer-name-function nil)
+          (cl-letf (((symbol-function 'require)
+                     (lambda (feature &optional _filename _noerror)
+                       (eq feature 'ghostel)))
+                    ((symbol-function 'pop-to-buffer)
+                     (lambda (buf &rest _args)
+                       (setq buffer buf)
+                       (set-buffer buf)))
+                    ((symbol-function 'ghostel-mode)
+                     (lambda () (setq major-mode 'ghostel-mode)))
+                    ((symbol-function 'ghostel-exec)
+                     (lambda (buf _program _args)
+                       ;; Simulate Ghostel processing an initial OSC 7-only
+                       ;; remote directory update during process startup.
+                       (with-current-buffer buf
+                         (setq seen (and (functionp ghostel-buffer-name-function)
+                                         (funcall ghostel-buffer-name-function nil))))))
+                    ((symbol-function 'ghostel-semi-char-mode) #'ignore))
+            (setq buffer (term-sessions--ghostel-open-command buffer-name "zmx attach dev"))
+            (should (equal seen buffer-name))))
+      (if had-ghostel-buffer-name-function
+          (set 'ghostel-buffer-name-function old-ghostel-buffer-name-function)
+        (makunbound 'ghostel-buffer-name-function))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest term-sessions-test-remote-interactive-attach-supports-ssh-tramp-path ()
   (let ((default-directory "/ssh:example:/tmp"))

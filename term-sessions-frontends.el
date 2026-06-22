@@ -16,6 +16,7 @@
 (declare-function eat "ext:eat" (&optional program name))
 (declare-function eat-semi-char-mode "eat" ())
 (declare-function eat-make "eat" (name program &optional startfile &rest switches))
+(declare-function ghostel-mode "ghostel" ())
 (declare-function ghostel-semi-char-mode "ghostel" ())
 (declare-function ghostel-exec "ghostel" (buffer program &optional args))
 (declare-function term-emulate-terminal "term" (proc string))
@@ -61,6 +62,17 @@ This isolates Ghostel's private process variable from the frontend adapter."
       (setq default-directory directory)
       (if (term-sessions--ghostel-live-process-p)
           (ghostel-semi-char-mode)
+        ;; Ghostel may process initial OSC 7 directory reports before
+        ;; `term-sessions--open-ghostel' gets a chance to install the final
+        ;; title tracker.  Seed a safe buffer-local name function first so
+        ;; title-less directory updates on remote shells never ask Ghostel to
+        ;; rename to nil.
+        (unless (derived-mode-p 'ghostel-mode)
+          (let ((ghostel-buffer-name-function nil))
+            (ghostel-mode)))
+        (when (boundp 'ghostel-buffer-name-function)
+          (setq-local ghostel-buffer-name-function
+                      (lambda (_title) buffer-name)))
         (ghostel-exec buffer "/bin/sh" (list "-lc" command))
         (rename-buffer buffer-name t)
         ;; Semi-char mode sends ordinary text to the terminal while preserving
