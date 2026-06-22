@@ -139,7 +139,7 @@ additional location context is included."
 (defun term-sessions--org-link-for-entry (entry &optional frontend)
   "Return a bracketed Org link for session ENTRY.
 FRONTEND defaults to `term-sessions-preferred-frontend'."
-  (let* ((default-directory (term-sessions--entry-directory entry))
+  (let* ((default-directory (term-sessions--entry-cwd-directory entry))
          (name (term-sessions--entry-name entry))
          (spec (term-sessions-spec-current
                 name nil (or frontend term-sessions-preferred-frontend))))

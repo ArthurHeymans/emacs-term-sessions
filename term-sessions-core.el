@@ -195,6 +195,25 @@ sessions are likewise keyed to the local backend rather than to one cwd."
   (or (and (consp entry) (plist-get entry :directory))
       default-directory))
 
+(defun term-sessions--entry-cwd-directory (entry)
+  "Return an Emacs directory name for ENTRY's current working directory.
+
+Session list entries keep `:directory' as the backend identity (for example a
+TRAMP root such as \"/ssh:host:/\") and `:cwd' as zmx's remote-side current
+working directory.  Qualify remote cwd values with the backend TRAMP prefix so
+newly reopened terminal buffers have a useful `default-directory' for commands
+such as `find-file'."
+  (let* ((backend-directory (term-sessions--entry-directory entry))
+         (cwd (and (consp entry)
+                   (term-sessions--string-or-nil (plist-get entry :cwd))))
+         (remote-prefix (file-remote-p backend-directory)))
+    (file-name-as-directory
+     (cond
+      ((null cwd) backend-directory)
+      ((file-remote-p cwd) cwd)
+      (remote-prefix (concat remote-prefix cwd))
+      (t cwd)))))
+
 (defun term-sessions--register-completion-entry (candidate entry)
   "Remember that CANDIDATE names ENTRY for completion actions."
   (puthash (substring-no-properties candidate)

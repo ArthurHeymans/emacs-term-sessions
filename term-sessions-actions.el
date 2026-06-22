@@ -113,17 +113,7 @@
 
 (defun term-sessions-action--entry-cwd-directory (entry)
   "Return an Emacs directory name for ENTRY's backend cwd."
-  (let* ((backend-directory (term-sessions--entry-directory entry))
-         (cwd (term-sessions--string-or-nil (plist-get entry :cwd)))
-         (remote-prefix (file-remote-p backend-directory)))
-    (file-name-as-directory
-     (cond
-      ((null cwd) backend-directory)
-      ((and remote-prefix (file-name-absolute-p cwd))
-       (concat remote-prefix cwd))
-      ((and remote-prefix (not (file-remote-p cwd)))
-       (concat remote-prefix cwd))
-      (t cwd)))))
+  (term-sessions--entry-cwd-directory entry))
 
 ;;;###autoload
 (defun term-sessions-action-open (candidate)

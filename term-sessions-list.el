@@ -545,7 +545,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
     (kill-new (string-join links "\n"))
     (when (= (length links) 1)
       (let* ((entry (car (term-sessions-list--selected-entries)))
-             (default-directory (term-sessions--entry-directory entry)))
+             (default-directory (term-sessions--entry-cwd-directory entry)))
         (term-sessions-store-org-link (term-sessions--entry-name entry))))
     (message "Copied %d term-session Org link%s"
              (length links) (if (= (length links) 1) "" "s"))))

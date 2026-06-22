@@ -331,7 +331,7 @@ session to already exist according to zmx in the entry/current directory."
          nil))
   (let* ((entry (and (consp name) name))
          (default-directory (if entry
-                                (term-sessions--entry-directory entry)
+                                (term-sessions--entry-cwd-directory entry)
                               default-directory))
          (name (term-sessions--entry-name name)))
     (or (term-sessions--pop-existing-session-buffer
