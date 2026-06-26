@@ -767,6 +767,19 @@
       (should-not (term-sessions-list--query-directory "/ssh:example:/"))
       (should (= calls 1)))))
 
+(ert-deftest term-sessions-test-list-async-skips-remotes-without-live-connection ()
+  (let ((term-sessions-list--failed-remotes (make-hash-table :test #'equal))
+        started)
+    (cl-letf (((symbol-function 'term-sessions-list--remote-connection-state)
+               (lambda (_directory) 'absent))
+              ((symbol-function 'start-file-process)
+               (lambda (&rest _args)
+                 (setq started t))))
+      (should-not (term-sessions-list--start-remote-query
+                   "/ssh:example:/" (current-buffer) 1))
+      (should-not started)
+      (should (gethash "/ssh:example:" term-sessions-list--failed-remotes)))))
+
 (ert-deftest term-sessions-test-list-retries-open-session-remotes ()
   (let ((term-sessions-list--failed-remotes (make-hash-table :test #'equal))
         (term-sessions-list-include-open-remotes nil)
@@ -776,10 +789,13 @@
     (with-temp-buffer
       (setq default-directory "/ssh:example:/tmp/"
             term-sessions-current-name "dev")
-      (cl-letf (((symbol-function 'term-sessions--zmx-list-sessions)
-                 (lambda ()
-                   (push default-directory queried)
-                   nil)))
+      (cl-letf (((symbol-function 'term-sessions-list--query-directory)
+                 (lambda (directory)
+                   (push directory queried)
+                   nil))
+                ((symbol-function 'term-sessions-list--start-remote-query)
+                 (lambda (directory _buffer _generation)
+                   (push directory queried))))
         (with-temp-buffer
           (term-sessions-list-mode)
           (term-sessions-list-refresh))))

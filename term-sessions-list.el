@@ -36,6 +36,15 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
                  (const :tag "Skip until cleared" 0)
                  (integer :tag "Retry delay in seconds")))
 
+(defcustom term-sessions-list-remote-query-timeout 10
+  "Seconds to wait for an asynchronous remote list query.
+When nil, remote `zmx list' processes are allowed to run until they finish.
+Timed-out remotes are remembered in the failed-remote cache so a broken TRAMP
+connection does not keep distracting later list refreshes."
+  :group 'term-sessions
+  :type '(choice (const :tag "No timeout" nil)
+                 (number :tag "Seconds")))
+
 (defvar term-sessions-list--failed-remotes (make-hash-table :test #'equal)
   "Remote directories that recently failed during `term-sessions-list' refresh.")
 
@@ -47,6 +56,12 @@ is skipped until `term-sessions-list-clear-failed-remotes' is called."
 
 (defvar-local term-sessions-list--all-entries nil
   "Unfiltered tabulated entries for the current list refresh.")
+
+(defvar-local term-sessions-list--pending-remote-queries nil
+  "Remote `zmx list' processes pending for the current list buffer.")
+
+(defvar-local term-sessions-list--refresh-generation 0
+  "Monotonic refresh id used to ignore stale asynchronous remote queries.")
 
 (defvar term-sessions-list-mode-map
   (let ((map (make-sparse-keymap))
@@ -313,6 +328,49 @@ session server and should not be listed twice."
   (when-let ((remote (file-remote-p directory)))
     (puthash remote (cons (current-time) error) term-sessions-list--failed-remotes)))
 
+(defun term-sessions-list--remote-connection-state (directory)
+  "Return DIRECTORY's cheap TRAMP connection state.
+Possible values are `live', `dead', `absent', `unknown', or nil for local
+directories.  This consults existing TRAMP connection state only; it must not
+start or reconnect providers during list refresh."
+  (when (file-remote-p directory)
+    (if-let ((vec (ignore-errors (tramp-dissect-file-name directory))))
+        (if (fboundp 'tramp-get-connection-process)
+            (let ((process (ignore-errors (tramp-get-connection-process vec))))
+              (cond
+               ((processp process)
+                (if (process-live-p process) 'live 'dead))
+               ((null process) 'absent)
+               (t 'unknown)))
+          'unknown)
+      'unknown)))
+
+(defun term-sessions-list--remote-known-offline-p (directory)
+  "Return non-nil when DIRECTORY's TRAMP connection process is known dead."
+  (eq (term-sessions-list--remote-connection-state directory) 'dead))
+
+(defun term-sessions-list--skip-known-offline-remote-p (directory)
+  "Record and return non-nil when DIRECTORY should be skipped as offline."
+  (when (term-sessions-list--remote-known-offline-p directory)
+    (term-sessions-list--record-remote-failure
+     directory "TRAMP connection process is not live")
+    (message "term-sessions: skipping offline TRAMP remote %s (R retries)"
+             directory)
+    t))
+
+(defun term-sessions-list--skip-unavailable-async-remote-p (directory)
+  "Record and return non-nil when DIRECTORY should not be queried async.
+Asynchronous list refreshes are intentionally conservative: a remote from
+`tramp-list-connections' without a live connection process would make TRAMP
+reconnect in the UI path, which is exactly what we are trying to avoid."
+  (when (memq (term-sessions-list--remote-connection-state directory)
+              '(dead absent))
+    (term-sessions-list--record-remote-failure
+     directory "TRAMP connection process is not live")
+    (message "term-sessions: skipping offline TRAMP remote %s (R retries)"
+             directory)
+    t))
+
 (defun term-sessions-list--clear-remote-failure (directory)
   "Forget any cached failure for remote DIRECTORY."
   (when-let ((remote (file-remote-p directory)))
@@ -356,16 +414,38 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
 
 (defun term-sessions-list--query-directory (directory)
   "Return session rows for zmx at DIRECTORY."
-  (let ((default-directory directory)
-        rows)
-    (dolist (session (if (term-sessions-list--failed-remote-p directory)
-                         nil
-                       (condition-case err
-                           (term-sessions--zmx-list-sessions)
-                         (error
-                          (term-sessions-list--record-remote-failure directory err)
-                          (message "term-sessions: cannot list %s: %s" directory err)
-                          nil))))
+  (let ((default-directory directory))
+    (term-sessions-list--rows-for-sessions
+     (cond
+      ((term-sessions-list--failed-remote-p directory)
+       nil)
+      ((term-sessions-list--skip-known-offline-remote-p directory)
+       nil)
+      (t
+       (condition-case err
+           (term-sessions--zmx-list-sessions)
+         (error
+          (term-sessions-list--record-remote-failure directory err)
+          (message "term-sessions: cannot list %s: %s" directory err)
+          nil))))
+     directory)))
+
+(defun term-sessions-list--parse-zmx-list-output (output)
+  "Parse zmx list OUTPUT into session plists without extra remote probes."
+  (delq nil
+        (mapcar
+         (lambda (line)
+           (unless (or (string-empty-p (string-trim line))
+                       (string-prefix-p "no sessions found" line))
+             (let ((entry (term-sessions--parse-key-value-fields line)))
+               (when (plist-get entry :name)
+                 entry))))
+         (split-string output "\n" t))))
+
+(defun term-sessions-list--rows-for-sessions (sessions directory)
+  "Return tabulated rows for SESSIONS from DIRECTORY."
+  (let (rows)
+    (dolist (session sessions)
       (let* ((entry (term-sessions--zmx-session-entry session directory))
              (name (plist-get entry :name))
              (where (term-sessions-list--location-label directory))
@@ -384,6 +464,132 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
                                :updated-raw updated-raw))))
         (push (list id (vector name where project created updated clients cwd cmd)) rows)))
     (nreverse rows)))
+
+(defun term-sessions-list--rows-without-directory (rows directory)
+  "Return ROWS without entries owned by DIRECTORY's backend."
+  (let ((key (term-sessions--directory-key directory)))
+    (seq-remove (lambda (row)
+                  (equal (term-sessions--directory-key
+                          (term-sessions--entry-directory (car row)))
+                         key))
+                rows)))
+
+(defun term-sessions-list--remote-query-done (process)
+  "Clean up PROCESS bookkeeping for an asynchronous remote query."
+  (when-let ((timer (process-get process 'term-sessions-list-timer)))
+    (cancel-timer timer))
+  (when-let ((list-buffer (process-get process 'term-sessions-list-buffer)))
+    (when (buffer-live-p list-buffer)
+      (with-current-buffer list-buffer
+        (setq term-sessions-list--pending-remote-queries
+              (delq process term-sessions-list--pending-remote-queries))))))
+
+(defun term-sessions-list--remote-query-install (buffer generation directory rows)
+  "Install asynchronous ROWS for DIRECTORY into BUFFER if still current."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (and (derived-mode-p 'term-sessions-list-mode)
+                 (= generation term-sessions-list--refresh-generation))
+        (setq term-sessions-list--all-entries
+              (append (term-sessions-list--rows-without-directory
+                       term-sessions-list--all-entries directory)
+                      rows))
+        (term-sessions-list--reprint)))))
+
+(defun term-sessions-list--remote-query-timeout (process)
+  "Abort remote query PROCESS after `term-sessions-list-remote-query-timeout'."
+  (when (process-live-p process)
+    (process-put process 'term-sessions-list-timeout t)
+    (delete-process process)))
+
+(defun term-sessions-list--remote-query-sentinel (process event)
+  "Handle completion of an asynchronous remote list PROCESS with EVENT."
+  (when (memq (process-status process) '(exit signal))
+    (let* ((cancelled-p (process-get process 'term-sessions-list-cancelled))
+           (directory (process-get process 'term-sessions-list-directory))
+           (list-buffer (process-get process 'term-sessions-list-buffer))
+           (generation (process-get process 'term-sessions-list-generation))
+           (timeout-p (process-get process 'term-sessions-list-timeout))
+           (output-buffer (process-buffer process))
+           (output (if (buffer-live-p output-buffer)
+                       (with-current-buffer output-buffer (buffer-string))
+                     "")))
+      (term-sessions-list--remote-query-done process)
+      (unwind-protect
+          (unless cancelled-p
+            (if (and (eq (process-status process) 'exit)
+                     (eq (process-exit-status process) 0)
+                     (not timeout-p))
+                (progn
+                  (term-sessions-list--clear-remote-failure directory)
+                  (term-sessions-list--remote-query-install
+                   list-buffer generation directory
+                   (term-sessions-list--rows-for-sessions
+                    (term-sessions-list--parse-zmx-list-output output)
+                    directory)))
+              (let ((reason (if timeout-p
+                                (format "timed out after %ss"
+                                        term-sessions-list-remote-query-timeout)
+                              (string-trim (concat output " " event)))))
+                (term-sessions-list--record-remote-failure directory reason)
+                (message "term-sessions: cannot list %s: %s (R retries)"
+                         directory reason))))
+        (when (buffer-live-p output-buffer)
+          (kill-buffer output-buffer))))))
+
+(defun term-sessions-list--start-remote-query (directory buffer generation)
+  "Start an asynchronous zmx list query for remote DIRECTORY."
+  (cond
+   ((term-sessions-list--failed-remote-p directory)
+    nil)
+   ((term-sessions-list--skip-unavailable-async-remote-p directory)
+    nil)
+   (t
+    (let ((default-directory directory)
+          (output-buffer (generate-new-buffer
+                          (format " *term-sessions-list:%s*" directory))))
+      (condition-case err
+          (let (process)
+            (term-sessions-zmx--with-environment
+              (term-sessions--ensure-zmx)
+              (setq process
+                    (start-file-process
+                     (format "term-sessions-list:%s" directory)
+                     output-buffer term-sessions-zmx-program "list")))
+            (process-put process 'term-sessions-list-buffer buffer)
+            (process-put process 'term-sessions-list-directory directory)
+            (process-put process 'term-sessions-list-generation generation)
+            (when term-sessions-list-remote-query-timeout
+              (process-put process 'term-sessions-list-timer
+                           (run-at-time term-sessions-list-remote-query-timeout nil
+                                        #'term-sessions-list--remote-query-timeout
+                                        process)))
+            (set-process-sentinel process
+                                  #'term-sessions-list--remote-query-sentinel)
+            (push process term-sessions-list--pending-remote-queries)
+            (when (memq (process-status process) '(exit signal))
+              (term-sessions-list--remote-query-sentinel process "finished\n"))
+            process)
+        (error
+         (term-sessions-list--record-remote-failure directory err)
+         (message "term-sessions: cannot start remote query for %s: %s"
+                  directory err)
+         (when (buffer-live-p output-buffer)
+           (kill-buffer output-buffer))
+         nil))))))
+
+(defun term-sessions-list--cancel-pending-remote-queries ()
+  "Cancel asynchronous remote queries owned by the current list buffer."
+  (dolist (process term-sessions-list--pending-remote-queries)
+    (process-put process 'term-sessions-list-cancelled t)
+    (when (process-live-p process)
+      (delete-process process))
+    (when-let ((timer (process-get process 'term-sessions-list-timer)))
+      (cancel-timer timer))
+    (when-let ((buffer (process-buffer process)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))))
+  (setq term-sessions-list--pending-remote-queries nil))
 
 (defun term-sessions-list--filtered-entries (entries)
   "Return ENTRIES after applying `term-sessions-list--narrow-criteria'."
@@ -460,8 +666,33 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
            (mapcar #'term-sessions-list--query-directory directories))))
 
 (defun term-sessions-list-refresh ()
-  "Refresh `term-sessions-list-mode' rows."
-  (setq term-sessions-list--all-entries (term-sessions-list--session-rows))
+  "Refresh `term-sessions-list-mode' rows.
+Local sessions are queried synchronously.  Remote TRAMP sessions are queried in
+the background so stale or offline providers do not block the list UI."
+  (cl-incf term-sessions-list--refresh-generation)
+  (term-sessions-list--cancel-pending-remote-queries)
+  (let* ((generation term-sessions-list--refresh-generation)
+         (session-directories (term-sessions-list--session-buffer-directories))
+         (directories (term-sessions-list--delete-duplicate-directories
+                       (append (list (term-sessions-list--local-directory))
+                               session-directories
+                               (term-sessions-list--open-remote-directories))))
+         (local-directories (seq-remove #'file-remote-p directories))
+         (remote-directories (seq-filter #'file-remote-p directories)))
+    ;; If the user has successfully opened a term-session on a remote, retry
+    ;; that remote even if an earlier list refresh cached a TRAMP failure.
+    (mapc #'term-sessions-list--clear-remote-failure session-directories)
+    (setq term-sessions-list--all-entries
+          (apply #'append
+                 (mapcar #'term-sessions-list--query-directory local-directories)))
+    (let ((started 0))
+      (dolist (directory remote-directories)
+        (when (term-sessions-list--start-remote-query directory (current-buffer) generation)
+          (cl-incf started)))
+      (when (> started 0)
+        (message "term-sessions: querying %d TRAMP remote%s in background"
+                 started
+                 (if (= started 1) "" "s")))))
   (setq tabulated-list-entries
         (term-sessions-list--filtered-entries term-sessions-list--all-entries)))
 
