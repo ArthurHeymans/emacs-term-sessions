@@ -274,6 +274,22 @@
       (should-not opened)
       (should (equal started '("missing" nil term t))))))
 
+(ert-deftest term-sessions-test-org-query-ignores-unknown-keys-without-interning ()
+  (let ((unknown "term-sessions-test-never-intern-this-key"))
+    (should-not (intern-soft (concat ":" unknown)))
+    (should (equal (term-sessions--org-decode-query
+                    (format "name=dev&%s=value" unknown))
+                   '(:name "dev")))
+    (should-not (intern-soft (concat ":" unknown)))))
+
+(ert-deftest term-sessions-test-org-rejects-unknown-frontend-without-interning ()
+  (let ((unknown "term-sessions-test-never-intern-this-frontend"))
+    (should-not (intern-soft unknown))
+    (should-error
+     (term-sessions--org-frontend (list :frontend unknown) 'term)
+     :type 'user-error)
+    (should-not (intern-soft unknown))))
+
 (ert-deftest term-sessions-test-org-babel-session-name-from-header ()
   (let ((term-sessions-org-babel-default-session-name "org-default"))
     (should (equal (term-sessions--org-babel-session-name
@@ -767,6 +783,38 @@
       (should-not (term-sessions-list--query-directory "/ssh:example:/"))
       (should (= calls 1)))))
 
+(ert-deftest term-sessions-test-list-remote-query-sentinel-runs-once ()
+  (let* ((output-buffer (generate-new-buffer " *term-sessions-test-output*"))
+         (list-buffer (generate-new-buffer " *term-sessions-test-list*"))
+         (process (start-process "term-sessions-test-finished"
+                                 output-buffer shell-file-name
+                                 shell-command-switch "exit 0"))
+         (installs 0)
+         (done 0))
+    (unwind-protect
+        (progn
+          (with-current-buffer output-buffer (insert "name=dev\n"))
+          (process-put process 'term-sessions-list-buffer list-buffer)
+          (process-put process 'term-sessions-list-directory "/ssh:example:/")
+          (process-put process 'term-sessions-list-generation 1)
+          (while (process-live-p process)
+            (accept-process-output process 0.01))
+          (cl-letf (((symbol-function 'term-sessions-list--remote-query-done)
+                     (lambda (_process) (cl-incf done)))
+                    ((symbol-function 'term-sessions-list--clear-remote-failure)
+                     #'ignore)
+                    ((symbol-function 'term-sessions-list--remote-query-install)
+                     (lambda (&rest _args) (cl-incf installs)))
+                    ((symbol-function 'term-sessions-list--rows-for-sessions)
+                     (lambda (&rest _args) nil)))
+            (term-sessions-list--remote-query-sentinel process "finished\n")
+            (term-sessions-list--remote-query-sentinel process "finished\n")
+            (should (= done 1))
+            (should (= installs 1))))
+      (when (process-live-p process) (delete-process process))
+      (when (buffer-live-p output-buffer) (kill-buffer output-buffer))
+      (when (buffer-live-p list-buffer) (kill-buffer list-buffer)))))
+
 (ert-deftest term-sessions-test-list-async-skips-remotes-without-live-connection ()
   (let ((term-sessions-list--failed-remotes (make-hash-table :test #'equal))
         started)
@@ -806,6 +854,21 @@
   (should (equal (term-sessions-list--delete-duplicate-directories
                   '("/home/arthur/" "/ssh:example:/tmp/" "/ssh:example:/"))
                  '("/home/arthur/" "/ssh:example:/tmp/"))))
+
+(ert-deftest term-sessions-test-directory-key-ignores-tramp-method ()
+  (should (equal (term-sessions--directory-key "/ssh:user@example:/tmp/")
+                 (term-sessions--directory-key "/rpc:user@example:/repo/"))))
+
+(ert-deftest term-sessions-test-list-remote-project-label-skips-local-discovery ()
+  (let (called)
+    (cl-letf (((symbol-function 'term-sessions--project-name)
+               (lambda (_cwd)
+                 (setq called t)
+                 "wrong-local-project")))
+      (should (equal (term-sessions-list--project-label
+                      "/home/user/project" "/ssh:user@example:/")
+                     "project"))
+      (should-not called))))
 
 (ert-deftest term-sessions-test-list-skips-malformed-tramp-connections ()
   (let ((term-sessions-list-include-open-remotes t)
