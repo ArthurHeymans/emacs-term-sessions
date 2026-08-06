@@ -505,7 +505,9 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
 
 (defun term-sessions-list--remote-query-sentinel (process event)
   "Handle completion of an asynchronous remote list PROCESS with EVENT."
-  (when (memq (process-status process) '(exit signal))
+  (when (and (memq (process-status process) '(exit signal))
+             (not (process-get process 'term-sessions-list-handled)))
+    (process-put process 'term-sessions-list-handled t)
     (let* ((cancelled-p (process-get process 'term-sessions-list-cancelled))
            (directory (process-get process 'term-sessions-list-directory))
            (list-buffer (process-get process 'term-sessions-list-buffer))
@@ -565,9 +567,9 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
                            (run-at-time term-sessions-list-remote-query-timeout nil
                                         #'term-sessions-list--remote-query-timeout
                                         process)))
+            (push process term-sessions-list--pending-remote-queries)
             (set-process-sentinel process
                                   #'term-sessions-list--remote-query-sentinel)
-            (push process term-sessions-list--pending-remote-queries)
             (when (memq (process-status process) '(exit signal))
               (term-sessions-list--remote-query-sentinel process "finished\n"))
             process)
