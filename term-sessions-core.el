@@ -162,11 +162,15 @@ FALLBACK defaults to 10."
 
 (defun term-sessions--directory-key (directory)
   "Return backend identity key for DIRECTORY.
-Remote zmx sessions are keyed by TRAMP prefix rather than localname, because
-`/rpc:host:/' and `/rpc:host:/some/cwd' query the same zmx server.  Local zmx
-sessions are likewise keyed to the local backend rather than to one cwd."
-  (or (file-remote-p directory)
-      'local))
+Remote zmx sessions are keyed by their final user and host, independent of the
+TRAMP method and localname used to reach them.  Local zmx sessions are likewise
+keyed to the local backend rather than to one cwd."
+  (if-let ((remote (file-remote-p directory)))
+      (list 'remote
+            (or (file-remote-p directory 'user) (user-login-name))
+            (substring-no-properties
+             (or (file-remote-p directory 'host) remote)))
+    'local))
 
 (defun term-sessions--session-buffer (name directory &optional backend)
   "Return an existing term-sessions BACKEND buffer for NAME at DIRECTORY."
