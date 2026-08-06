@@ -165,9 +165,10 @@ connection does not keep distracting later list refreshes."
         (term-sessions--location-remote-label location)
       "local")))
 
-(defun term-sessions-list--project-label (cwd)
-  "Return a compact project label for CWD."
+(defun term-sessions-list--project-label (cwd directory)
+  "Return a compact project label for CWD owned by backend DIRECTORY."
   (or (and cwd
+           (not (file-remote-p directory))
            (not (file-remote-p cwd))
            (ignore-errors (term-sessions--project-name cwd)))
       (and cwd
@@ -455,7 +456,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
              (clients (plist-get entry :clients))
              (cwd (plist-get entry :cwd))
              (cmd (plist-get entry :command))
-             (project (term-sessions-list--project-label cwd))
+             (project (term-sessions-list--project-label cwd directory))
              (id (append entry
                          (list :where where
                                :project project
