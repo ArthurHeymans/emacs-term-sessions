@@ -82,15 +82,35 @@ an Emacs buffer is opened first and the block is sent through that buffer."
            (seq-filter #'cdr alist))
    "&"))
 
+(defconst term-sessions--org-query-keys
+  '(("backend" . :backend)
+    ("name" . :name)
+    ("directory" . :directory)
+    ("cwd" . :cwd)
+    ("command" . :command)
+    ("frontend" . :frontend)
+    ("project" . :project)
+    ("created-at" . :created-at)
+    ("recreate-policy" . :recreate-policy)
+    ("remote" . :remote)
+    ("method" . :method)
+    ("user" . :user)
+    ("host" . :host)
+    ("port" . :port)
+    ("hop" . :hop)
+    ("localname" . :localname))
+  "Supported keys in a term-session Org link query.")
+
 (defun term-sessions--org-decode-query (query)
-  "Decode QUERY into a plist with keyword keys."
+  "Decode supported fields from QUERY into a plist with keyword keys."
   (let (plist)
     (dolist (part (split-string query "&" t))
-      (pcase-let ((`(,key ,value) (split-string part "=")))
-        (when key
-          (setq plist (plist-put plist
-                                 (intern (concat ":" (url-unhex-string key)))
-                                 (url-unhex-string (or value "")))))))
+      (pcase-let ((`(,encoded-key ,encoded-value) (split-string part "=")))
+        (when-let ((key (cdr (assoc (url-unhex-string encoded-key)
+                                   term-sessions--org-query-keys))))
+          (setq plist (plist-put plist key
+                                 (url-unhex-string
+                                  (or encoded-value "")))))))
     plist))
 
 (defun term-sessions--spec-org-link (spec)
@@ -198,11 +218,17 @@ Return a plist with at least :backend, :location, :name, :cwd, :command,
       (plist-get components :directory)
       default-directory))
 
-(defun term-sessions--org-symbol (components key fallback)
-  "Return COMPONENTS KEY as a symbol, or FALLBACK."
-  (if-let ((value (plist-get components key)))
-      (intern value)
-    fallback))
+(defun term-sessions--org-frontend (components fallback)
+  "Return the validated frontend in COMPONENTS, or FALLBACK."
+  (if-let* ((value (plist-get components :frontend))
+            (frontend (intern-soft value)))
+      (if (memq frontend '(vterm eat ghostel term shell))
+          frontend
+        (user-error "Unsupported term-session frontend: %s" value))
+    (if (plist-get components :frontend)
+        (user-error "Unsupported term-session frontend: %s"
+                    (plist-get components :frontend))
+      fallback)))
 
 (defun term-sessions--org-babel-false-value-p (value)
   "Return non-nil when Babel header VALUE means false."
@@ -459,7 +485,7 @@ offer to recreate it with the stored command and cwd."
          (backend (plist-get components :backend))
          (name (plist-get components :name))
          (command (term-sessions--string-or-nil (plist-get components :command)))
-         (frontend (term-sessions--org-symbol components :frontend term-sessions-preferred-frontend))
+         (frontend (term-sessions--org-frontend components term-sessions-preferred-frontend))
          (default-directory (term-sessions--org-default-directory components)))
     (unless (string= backend "zmx")
       (user-error "Unsupported term-session backend: %s" backend))
