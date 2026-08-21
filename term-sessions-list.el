@@ -104,7 +104,11 @@ connection does not keep distracting later list refreshes."
   (setq-local revert-buffer-function #'term-sessions-list-revert)
   (setq-local eldoc-echo-area-use-multiline-p t)
   (setq-local eldoc-idle-delay 0)
-  (setq-local mode-line-position '((:eval (term-sessions-list--mode-line-indicator))))
+  ;; Append the narrowing indicator so user customizations of
+  ;; `mode-line-position' survive.
+  (setq-local mode-line-position
+              (append (default-value 'mode-line-position)
+                      '((:eval (term-sessions-list--mode-line-indicator)))))
   (hl-line-mode 1)
   (add-hook 'eldoc-documentation-functions #'term-sessions-list-eldoc nil t)
   (add-hook 'tabulated-list-revert-hook #'term-sessions-list-refresh nil t))
