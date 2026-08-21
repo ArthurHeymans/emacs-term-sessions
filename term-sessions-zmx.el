@@ -138,6 +138,16 @@ instead of the current project directory, which may be read-only."
   (when (memq (process-status process) '(exit signal))
     (message "%s %s" (process-name process) (string-trim event))))
 
+(defun term-sessions--zmx-run-sentinel (process event)
+  "Report EVENT for an async `zmx run' PROCESS and drop its buffer.
+The output buffer is only kept when a window is displaying it." 
+  (term-sessions--zmx-process-sentinel process event)
+  (when (memq (process-status process) '(exit signal))
+    (let ((buffer (process-buffer process)))
+      (when (and (buffer-live-p buffer)
+                 (not (get-buffer-window buffer 'visible)))
+        (kill-buffer buffer)))))
+
 (defun term-sessions--zmx-list-names ()
   "Return a list of active zmx session names."
   ;; Older zmx builds lack --short and return detailed tab-separated
@@ -428,7 +438,7 @@ This starts `zmx run NAME -d COMMAND...' and returns immediately.  Use
                        (split-string-and-unquote command)))
          (proc (apply #'term-sessions--start-zmx-process
                       (format "term-session-run:%s" name) buffer args)))
-    (set-process-sentinel proc #'term-sessions--zmx-process-sentinel)
+    (set-process-sentinel proc #'term-sessions--zmx-run-sentinel)
     (message "Started async zmx run in %s" name)
     proc))
 
