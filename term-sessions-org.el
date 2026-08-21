@@ -186,11 +186,18 @@ argument otherwise."
   (let ((name (or (and (stringp name-or-interactive) name-or-interactive)
                   term-sessions-current-name)))
     (when (or name (called-interactively-p 'interactive))
-      (let* ((name (or name (term-sessions--read-name "Store link for session: " t)))
-             (backend (or term-sessions-current-backend term-sessions-backend))
-             (spec (or term-sessions-current-spec
-                       (let ((term-sessions-backend backend))
-                         (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
+    (let* ((name (or name (term-sessions--read-name "Store link for session: " t)))
+           (backend (or term-sessions-current-backend term-sessions-backend))
+           ;; Reuse the buffer's spec only when it actually names the
+           ;; requested session; an explicit name must win over stale
+           ;; buffer metadata.
+           (current-spec term-sessions-current-spec)
+           (spec (if (and current-spec
+                          (equal (term-sessions-spec-name current-spec) name))
+                     current-spec
+                   (let ((term-sessions-backend backend))
+                     (term-sessions-spec-current
+                      name nil term-sessions-preferred-frontend))))
              (link (term-sessions--spec-org-link spec))
              (description (term-sessions--org-link-description name spec)))
         (if (fboundp 'org-link-store-props)

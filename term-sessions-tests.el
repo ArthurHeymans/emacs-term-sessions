@@ -167,6 +167,22 @@
       (should (string-match-p "ssh:user@example" (plist-get stored :description)))
       (should (string-match-p "/tmp/project" (plist-get stored :description))))))
 
+(ert-deftest term-sessions-test-store-org-link-explicit-name-beats-buffer-spec ()
+  ;; An explicit session name must not be stored with another session's
+  ;; buffer spec.
+  (let ((default-directory "/tmp/project")
+        (term-sessions-current-time-function (lambda () 0))
+        (term-sessions-current-name "dev")
+        (term-sessions-current-spec
+         (term-sessions-spec-create :name "dev" :backend 'zmx
+                                    :cwd "/tmp/project/"))
+        stored)
+    (cl-letf (((symbol-function 'org-link-store-props)
+               (lambda (&rest plist) (setq stored plist))))
+      (term-sessions-store-org-link "other")
+      (should (string-match-p "name=other" (plist-get stored :link)))
+      (should (string-prefix-p "other" (plist-get stored :description))))))
+
 (ert-deftest term-sessions-test-store-org-link-ignores-numeric-org-arg ()
   (let ((default-directory "/home/arthur/")
         (term-sessions-current-name "hello")
