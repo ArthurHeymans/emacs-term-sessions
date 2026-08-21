@@ -165,9 +165,12 @@ local `~' expansion can rewrite them to the local user home."
           (plist-get (term-sessions--zmx-version-info) :log_dir)
         (error nil))))
 
-(defun term-sessions--zmx-log-mtime (name)
-  "Return modification time for zmx session NAME log, or nil."
-  (when-let ((log-dir (term-sessions--zmx-log-dir)))
+(defun term-sessions--zmx-log-mtime (name &optional log-dir)
+  "Return modification time for zmx session NAME log, or nil.
+LOG-DIR defaults to `term-sessions--zmx-log-dir', which may spawn a
+`zmx version' process; callers listing many sessions should resolve it
+once and pass it here."
+  (when-let* ((log-dir (or log-dir (term-sessions--zmx-log-dir))))
     (when-let ((attrs (ignore-errors
                         (file-attributes
                          (term-sessions--zmx-log-file-name name log-dir)))))
@@ -228,16 +231,19 @@ local `~' expansion can rewrite them to the local user home."
 Fields include at least :name, and may include :pid, :clients, :created,
 :start_dir, :cmd, and :updated-time.  Propagate `zmx list' errors so callers
 can distinguish failures from an empty session list."
-  (let ((output (term-sessions--zmx "list")))
+  ;; Resolve the log directory once so listing N sessions does not spawn N
+  ;; `zmx version' processes.
+  (let* ((log-dir (term-sessions--zmx-log-dir))
+         (output (term-sessions--zmx "list")))
     (delq nil
           (mapcar
            (lambda (line)
              (unless (or (string-empty-p (string-trim line))
                          (string-prefix-p "no sessions found" line))
                (let ((entry (term-sessions--parse-key-value-fields line)))
-                 (when-let ((name (plist-get entry :name)))
+                 (when-let* ((name (plist-get entry :name)))
                    (plist-put entry :updated-time
-                              (term-sessions--zmx-log-mtime name))
+                              (term-sessions--zmx-log-mtime name log-dir))
                    (term-sessions--zmx-enrich-session-process-info entry)))))
            (split-string output "\n" t)))))
 
