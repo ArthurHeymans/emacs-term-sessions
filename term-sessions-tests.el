@@ -37,6 +37,26 @@
     (should (equal (term-sessions--stdin-temp-file-prefix)
                    "/ssh:user@example:/tmp/term-sessions-stdin-"))))
 
+(ert-deftest term-sessions-test-ensure-zmx-probes-remote-host ()
+  (clrhash term-sessions--remote-zmx-availability)
+  (let ((default-directory "/ssh:user@example:/tmp/")
+        probes)
+    (cl-letf (((symbol-function 'process-file)
+               (lambda (_program _infile _dest _display &rest args)
+                 (push args probes)
+                 0)))
+      (term-sessions--ensure-zmx)
+      (term-sessions--ensure-zmx)
+      (should (equal (car probes) '("-c" "command -v zmx")))
+      ;; The remote probe is cached per remote and program.
+      (should (= (length probes) 1)))))
+
+(ert-deftest term-sessions-test-ensure-zmx-errors-for-missing-remote-zmx ()
+  (clrhash term-sessions--remote-zmx-availability)
+  (let ((default-directory "/ssh:user@example:/tmp/"))
+    (cl-letf (((symbol-function 'process-file) (lambda (&rest _args) 1)))
+      (should-error (term-sessions--ensure-zmx) :type 'user-error))))
+
 (ert-deftest term-sessions-test-zmx-list-sessions-parses-details ()
   (let ((term-sessions-zmx-enrich-process-info nil))
     (cl-letf (((symbol-function 'term-sessions--zmx)
@@ -1012,7 +1032,9 @@
 
 (ert-deftest term-sessions-test-list-bounded-remote-query-parses-output ()
   (let ((term-sessions-list-remote-query-timeout 5))
-    (cl-letf (((symbol-function 'start-file-process)
+    (clrhash term-sessions--remote-zmx-availability)
+    (cl-letf (((symbol-function 'process-file) (lambda (&rest _args) 0))
+              ((symbol-function 'start-file-process)
                (lambda (_name buffer &rest _args)
                  (start-process "term-sessions-test-list" buffer
                                 "echo" "name=dev\tclients=0"))))
@@ -1024,7 +1046,9 @@
 (ert-deftest term-sessions-test-list-bounded-remote-query-times-out ()
   (let ((term-sessions-list-remote-query-timeout 5)
         failures)
-    (cl-letf (((symbol-function 'start-file-process)
+    (clrhash term-sessions--remote-zmx-availability)
+    (cl-letf (((symbol-function 'process-file) (lambda (&rest _args) 0))
+              ((symbol-function 'start-file-process)
                (lambda (_name buffer &rest _args)
                  (start-process "term-sessions-test-list" buffer "sleep" "5")))
               ((symbol-function 'term-sessions-list--record-remote-failure)

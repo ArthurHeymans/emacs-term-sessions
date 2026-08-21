@@ -45,14 +45,39 @@ This is best-effort and currently works on Linux hosts with `/proc' and `ps'."
          (setenv "ZMX_SESSION_PREFIX" term-sessions-zmx-session-prefix))
        ,@body)))
 
+(defvar term-sessions--remote-zmx-availability (make-hash-table :test #'equal)
+  "Cached remote zmx availability, keyed by remote prefix and program.")
+
+(defun term-sessions--remote-zmx-available-p (program)
+  "Return non-nil when PROGRAM can be found on the remote host.
+The check runs `command -v' over the TRAMP connection so a missing or
+misnamed remote program is reported clearly instead of surfacing as an
+opaque `process-file' failure later.  Cached per remote and program for
+the current Emacs session."
+  (let* ((remote (file-remote-p default-directory))
+         (key (concat remote "\0" program)))
+    (or (gethash key term-sessions--remote-zmx-availability)
+        (let ((available
+               (eq 0 (process-file "sh" nil nil nil "-c"
+                                   (concat "command -v "
+                                           (shell-quote-argument program))))))
+          (puthash key available term-sessions--remote-zmx-availability)
+          available))))
+
 (defun term-sessions--ensure-zmx ()
-  "Signal an error unless zmx is clearly unavailable.
+  "Signal an error when zmx is unavailable.
 For remote `default-directory' values, defer to `process-file' and the
 remote file handler so the remote PATH and connection-local settings apply."
   (term-sessions-zmx--with-environment
-    (unless (or (file-remote-p default-directory)
-                (executable-find term-sessions-zmx-program))
-      (user-error "Cannot find zmx executable `%s'" term-sessions-zmx-program))))
+    (if (file-remote-p default-directory)
+        (unless (term-sessions--remote-zmx-available-p
+                 term-sessions-zmx-program)
+          (user-error "Cannot find zmx executable `%s' on %s"
+                      term-sessions-zmx-program
+                      (file-remote-p default-directory)))
+      (unless (executable-find term-sessions-zmx-program)
+        (user-error "Cannot find zmx executable `%s'"
+                    term-sessions-zmx-program)))))
 
 (defun term-sessions--call-process-file (program infile &rest args)
   "Run PROGRAM with INFILE and ARGS, returning stdout as a string.
