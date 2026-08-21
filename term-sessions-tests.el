@@ -306,6 +306,10 @@
                    '(:name "dev")))
     (should-not (intern-soft (concat ":" unknown)))))
 
+(ert-deftest term-sessions-test-org-query-keeps-values-containing-equals ()
+  (should (equal (term-sessions--org-decode-query "command=make VAR=1")
+                 '(:command "make VAR=1"))))
+
 (ert-deftest term-sessions-test-org-rejects-unknown-frontend-without-interning ()
   (let ((unknown "term-sessions-test-never-intern-this-frontend"))
     (should-not (intern-soft unknown))

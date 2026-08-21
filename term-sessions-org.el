@@ -105,12 +105,15 @@ an Emacs buffer is opened first and the block is sent through that buffer."
   "Decode supported fields from QUERY into a plist with keyword keys."
   (let (plist)
     (dolist (part (split-string query "&" t))
-      (pcase-let ((`(,encoded-key ,encoded-value) (split-string part "=")))
-        (when-let ((key (cdr (assoc (url-unhex-string encoded-key)
-                                   term-sessions--org-query-keys))))
-          (setq plist (plist-put plist key
-                                 (url-unhex-string
-                                  (or encoded-value "")))))))
+      ;; Split on the first = only so unencoded values containing `='
+      ;; survive; package-generated links percent-encode values.
+      (when-let* ((eq (string-search "=" part)))
+        (let ((encoded-key (substring part 0 eq))
+              (encoded-value (substring part (1+ eq))))
+          (when-let* ((key (cdr (assoc (url-unhex-string encoded-key)
+                                       term-sessions--org-query-keys))))
+            (setq plist (plist-put plist key
+                                   (url-unhex-string encoded-value)))))))
     plist))
 
 (defun term-sessions--spec-org-link (spec)
