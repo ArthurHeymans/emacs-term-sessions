@@ -780,6 +780,43 @@
                   "dev" "*term-session:dev: [ssh:host] /repo*")
                  "term-session:dev: [ssh:host] /repo")))
 
+(ert-deftest term-sessions-test-open-term-process-initializes-stty ()
+  ;; Mirror term.el: the attach must run through an stty init wrapper so
+  ;; remote terminals get sane rows/columns without a pty resize ioctl.
+  (let ((buffer (get-buffer-create "*term-session:dev*"))
+        captured)
+    (unwind-protect
+        (progn
+          ;; term.el only sets these buffer-locals in `term-mode'; provide
+          ;; them the way a real term buffer would have.
+          (with-current-buffer buffer
+            (setq-local term-height 24)
+            (setq-local term-width 80)
+            (setq-local term-term-name "eterm-color")
+            (setq-local term-termcap-format "%s")
+            (setq-local term-protocol-version "2.1")
+            (setq-local term-set-terminal-size nil)
+            (setq default-directory "/tmp/"))
+          (cl-letf (((symbol-function 'term-check-proc) #'ignore)
+                    ((symbol-function 'term-mode) #'ignore)
+                    ((symbol-function 'term-char-mode) #'ignore)
+                    ((symbol-function 'pop-to-buffer) #'ignore)
+                    ((symbol-function 'set-process-sentinel) #'ignore)
+                    ((symbol-function 'start-file-process)
+                     (lambda (_name _buf &rest args)
+                       (setq captured args)
+                       (start-process "term-sessions-test-stty" nil "true"))))
+            (term-sessions--open-term-process
+             "dev" "/bin/zmx" '("attach" "dev") "*term-session:dev*")
+            (should (equal (nth 0 captured) "/bin/sh"))
+            (should (equal (nth 1 captured) "-c"))
+            (should (string-prefix-p "stty" (nth 2 captured)))
+            (should (equal (nth 3 captured) ".."))
+            (should (equal (nth 4 captured) "/bin/zmx"))
+            (should (equal (nthcdr 5 captured) '("attach" "dev")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest term-sessions-test-open-term-uses-buffer-name-base ()
   (let ((buffer (generate-new-buffer " *term-sessions-test-term-open*"))
         make-term-name)

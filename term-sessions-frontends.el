@@ -208,6 +208,12 @@ can be handled by TRAMP or tramp-rpc process file handlers."
                           term-term-name term-height term-width)
                   (format "INSIDE_EMACS=%s,term:%s"
                           emacs-version term-protocol-version))
+                 ;; Mirror term.el's bash workaround so remote shells see it
+                 ;; too.
+                 (when (and (fboundp 'term--bash-needs-EMACSp)
+                            (term--bash-needs-EMACSp))
+                   (list (format "EMACS=%s (term:%s)"
+                                 emacs-version term-protocol-version)))
                  (when term-set-terminal-size
                    (list (format "LINES=%d" term-height)
                          (format "COLUMNS=%d" term-width)))
@@ -215,14 +221,24 @@ can be handled by TRAMP or tramp-rpc process file handlers."
                (process-connection-type t)
                (inhibit-eol-conversion t)
                (coding-system-for-read 'binary)
+               ;; Mirror term.el's `term-exec-1' init: over TRAMP there is no
+               ;; pty resize ioctl, so initialize the terminal driver with
+               ;; stty before exec'ing the real command.
                (proc (apply #'start-file-process
                             base-name
-                            buffer program args)))
+                            buffer
+                            "/bin/sh" "-c"
+                            (format "stty -nl echo rows %d columns %d sane 2>%s;\
+if [ $1 = .. ]; then shift; fi; exec \"$@\""
+                                    term-height term-width null-device)
+                            ".."
+                            program args)))
           (setq-local term-ptyp process-connection-type)
           (goto-char (point-max))
           (set-marker (process-mark proc) (point))
           (set-process-filter proc #'term-emulate-terminal)
-          (set-process-sentinel proc #'term-sentinel))))
+          (set-process-sentinel proc #'term-sentinel)
+          (run-hooks 'term-exec-hook))))
     (pop-to-buffer buffer)
     (with-current-buffer buffer
       (term-char-mode)
