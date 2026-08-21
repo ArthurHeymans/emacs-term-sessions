@@ -655,6 +655,72 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   (tabulated-list-print t)
   (term-sessions-list--restore-marks))
 
+(defun term-sessions-list--bounded-remote-rows (directory timeout)
+  "Query remote DIRECTORY for session rows, waiting at most TIMEOUT seconds.
+Runs `zmx list' through `start-file-process' so a wedged TRAMP connection
+cannot block completion and consult UIs indefinitely.  Return rows or nil."
+  (let* ((output-buffer (generate-new-buffer
+                         (format " *term-sessions-query:%s*" directory)))
+         (deadline (time-add (current-time) timeout))
+         process)
+    (unwind-protect
+        (let ((default-directory directory))
+          (condition-case err
+              (progn
+                (term-sessions-zmx--with-environment
+                  (term-sessions--ensure-zmx)
+                  (setq process
+                        (start-file-process
+                         (format "term-sessions-query:%s" directory)
+                         output-buffer term-sessions-zmx-program "list")))
+                (while (and (process-live-p process)
+                            (time-less-p (current-time) deadline))
+                  (accept-process-output process 0.2 nil 0))
+                (cond
+                 ((and process (process-live-p process))
+                  (delete-process process)
+                  (term-sessions-list--record-remote-failure
+                   directory (format "timed out after %ss" timeout))
+                  (message "term-sessions: timed out querying %s" directory)
+                  nil)
+                 ((and process (eq (process-status process) 'exit)
+                       (eq (process-exit-status process) 0))
+                  (term-sessions-list--clear-remote-failure directory)
+                  (term-sessions-list--rows-for-sessions
+                   (term-sessions-list--parse-zmx-list-output
+                    (with-current-buffer output-buffer (buffer-string)))
+                   directory))
+                 (t
+                  (term-sessions-list--record-remote-failure
+                   directory
+                   (if (buffer-live-p output-buffer)
+                       (string-trim (buffer-string))
+                     "zmx list failed"))
+                  nil)))
+            (error
+             (term-sessions-list--record-remote-failure directory err)
+             (message "term-sessions: cannot query %s: %s" directory err)
+             nil)))
+      (when (buffer-live-p output-buffer)
+        (kill-buffer output-buffer)))))
+
+(defun term-sessions-list--query-remote-directory (directory)
+  "Return session rows for remote DIRECTORY with a bounded wait.
+Unlike `term-sessions-list--query-directory', this never blocks longer
+than `term-sessions-list-remote-query-timeout' seconds, so picking
+sessions with Consult or completion cannot hang on a wedged TRAMP
+connection.  A nil timeout keeps the previous unbounded behavior."
+  (cond
+   ((term-sessions-list--failed-remote-p directory)
+    nil)
+   ((term-sessions-list--skip-known-offline-remote-p directory)
+    nil)
+   ((null term-sessions-list-remote-query-timeout)
+    (term-sessions-list--query-directory directory))
+   (t
+    (term-sessions-list--bounded-remote-rows
+     directory term-sessions-list-remote-query-timeout))))
+
 (defun term-sessions-list--session-rows ()
   "Return session rows across local and already-open TRAMP remotes."
   (let* ((session-directories (term-sessions-list--session-buffer-directories))
@@ -665,8 +731,14 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
     ;; If the user has successfully opened a term-session on a remote, retry
     ;; that remote even if an earlier list refresh cached a TRAMP failure.
     (mapc #'term-sessions-list--clear-remote-failure session-directories)
+    (let* ((local-directories (seq-remove #'file-remote-p directories))
+           (remote-directories (seq-filter #'file-remote-p directories)))
     (apply #'append
-           (mapcar #'term-sessions-list--query-directory directories))))
+           (delq nil
+                 (append (mapcar #'term-sessions-list--query-directory
+                                 local-directories)
+                         (mapcar #'term-sessions-list--query-remote-directory
+                                 remote-directories)))))))
 
 (defun term-sessions-list-refresh ()
   "Refresh `term-sessions-list-mode' rows.

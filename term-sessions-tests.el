@@ -907,7 +907,9 @@
                      '("/ssh:host:/"))))))
 
 (ert-deftest term-sessions-test-list-session-rows-queries-known-directories ()
-  (let (queried cleared)
+  ;; Earlier tests may have cached remote failures in the shared cache.
+  (clrhash term-sessions-list--failed-remotes)
+  (let (queried remote-queried cleared)
     (cl-letf (((symbol-function 'term-sessions-list--local-directory)
                (lambda () "/home/me/"))
               ((symbol-function 'term-sessions-list--session-buffer-directories)
@@ -919,13 +921,42 @@
               ((symbol-function 'term-sessions-list--query-directory)
                (lambda (directory)
                  (push directory queried)
+                 (list (list (list :name directory :directory directory) []))))
+              ((symbol-function 'term-sessions-list--query-remote-directory)
+               (lambda (directory)
+                 (push directory remote-queried)
                  (list (list (list :name directory :directory directory) [])))))
       (should (equal (mapcar (lambda (row) (plist-get (car row) :directory))
                              (term-sessions-list--session-rows))
                      '("/home/me/" "/ssh:host:/repo/" "/ssh:other:/")))
-      (should (equal (nreverse queried)
-                     '("/home/me/" "/ssh:host:/repo/" "/ssh:other:/")))
+      (should (equal queried '("/home/me/")))
+      ;; "/ssh:host:/" and "/ssh:host:/repo/" share a backend identity.
+      (should (equal (nreverse remote-queried)
+                     '("/ssh:host:/repo/" "/ssh:other:/")))
       (should (equal cleared '("/ssh:host:/repo/"))))))
+
+(ert-deftest term-sessions-test-list-bounded-remote-query-parses-output ()
+  (let ((term-sessions-list-remote-query-timeout 5))
+    (cl-letf (((symbol-function 'start-file-process)
+               (lambda (_name buffer &rest _args)
+                 (start-process "term-sessions-test-list" buffer
+                                "echo" "name=dev\tclients=0"))))
+      (should (equal (mapcar (lambda (row) (plist-get (car row) :name))
+                             (term-sessions-list--bounded-remote-rows
+                              "/ssh:host:/" 5))
+                     '("dev"))))))
+
+(ert-deftest term-sessions-test-list-bounded-remote-query-times-out ()
+  (let ((term-sessions-list-remote-query-timeout 5)
+        failures)
+    (cl-letf (((symbol-function 'start-file-process)
+               (lambda (_name buffer &rest _args)
+                 (start-process "term-sessions-test-list" buffer "sleep" "5")))
+              ((symbol-function 'term-sessions-list--record-remote-failure)
+               (lambda (_directory reason) (push reason failures))))
+      (should (null (term-sessions-list--bounded-remote-rows
+                     "/ssh:slow:/" 0)))
+      (should (string-prefix-p "timed out" (car failures))))))
 
 (ert-deftest term-sessions-test-finds-existing-local-session-buffer ()
   (let ((term-sessions-backend 'zmx))
