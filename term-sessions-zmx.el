@@ -52,8 +52,9 @@ This is best-effort and currently works on Linux hosts with `/proc' and `ps'."
   "Return non-nil when PROGRAM can be found on the remote host.
 The check runs `command -v' over the TRAMP connection so a missing or
 misnamed remote program is reported clearly instead of surfacing as an
-opaque `process-file' failure later.  Cached per remote and program for
-the current Emacs session."
+opaque `process-file' failure later.  Successful checks are cached per
+remote and program for the current Emacs session; failures are retried
+so a transient connection problem cannot disable a host permanently."
   (let* ((remote (file-remote-p default-directory))
          (key (concat remote "\0" program)))
     (or (gethash key term-sessions--remote-zmx-availability)
@@ -61,7 +62,9 @@ the current Emacs session."
                (eq 0 (process-file "sh" nil nil nil "-c"
                                    (concat "command -v "
                                            (shell-quote-argument program))))))
-          (puthash key available term-sessions--remote-zmx-availability)
+          ;; Only cache successes so a failed probe is retried later.
+          (when available
+            (puthash key available term-sessions--remote-zmx-availability))
           available))))
 
 (defun term-sessions--ensure-zmx ()

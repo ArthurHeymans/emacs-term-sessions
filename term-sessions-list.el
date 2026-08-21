@@ -558,7 +558,6 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
       (condition-case err
           (let (process)
             (term-sessions-zmx--with-environment
-              (term-sessions--ensure-zmx)
               (setq process
                     (start-file-process
                      (format "term-sessions-list:%s" directory)
@@ -671,8 +670,11 @@ cannot block completion and consult UIs indefinitely.  Return rows or nil."
         (let ((default-directory directory))
           (condition-case err
               (progn
+                ;; No synchronous `term-sessions--ensure-zmx' here: the
+                ;; probe would block on the TRAMP connection before the
+                ;; deadline below can apply.  A missing or broken remote
+                ;; zmx surfaces through the supervised process instead.
                 (term-sessions-zmx--with-environment
-                  (term-sessions--ensure-zmx)
                   (setq process
                         (start-file-process
                          (format "term-sessions-query:%s" directory)
