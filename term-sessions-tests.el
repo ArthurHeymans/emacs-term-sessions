@@ -234,7 +234,8 @@
           (with-current-buffer buffer
             (setq default-directory "/tmp/")
             (setq-local term-sessions-current-name "dev")
-            (setq-local term-sessions-current-backend 'zmx))
+            (setq-local term-sessions-current-backend 'zmx)
+            (setq-local term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--active-p)
                      (lambda (name) (equal name "dev")))
                     ((symbol-function 'pop-to-buffer)
@@ -394,7 +395,8 @@
           (with-current-buffer buffer
             (setq default-directory "/tmp/")
             (setq-local term-sessions-current-name "dev")
-            (setq-local term-sessions-current-backend 'zmx))
+            (setq-local term-sessions-current-backend 'zmx)
+            (setq-local term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--zmx-with-stdin)
                      (lambda (&rest _args) (error "Should not call zmx send"))))
             (should (eq (term-sessions--org-babel-send-now "dev" "echo hi")
@@ -458,7 +460,8 @@
           (with-current-buffer buffer
             (setq default-directory "/ssh:user@example:/tmp/project/")
             (setq-local term-sessions-current-name "dev")
-            (setq-local term-sessions-current-backend 'zmx))
+            (setq-local term-sessions-current-backend 'zmx)
+            (setq-local term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'process-send-string)
                      (lambda (proc string)
                        (setq sent (list proc string)))))
@@ -553,7 +556,8 @@
           (with-current-buffer buffer
             (setq default-directory "/tmp/project/"
                   term-sessions-current-name "dev"
-                  term-sessions-current-backend 'zmx))
+                  term-sessions-current-backend 'zmx
+                  term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--ensure-zmx)
                      (lambda () (setq ensured t)))
                     ((symbol-function 'term-sessions--open-command-frontend)
@@ -905,7 +909,8 @@
     (with-temp-buffer
       (setq default-directory "/tmp/"
             term-sessions-current-name "dev"
-            term-sessions-current-backend 'zmx)
+            term-sessions-current-backend 'zmx
+            term-sessions-current-terminal-p t)
       (should (eq (term-sessions--session-buffer "dev" "/home/arthur/" 'zmx)
                   (current-buffer))))))
 
@@ -914,9 +919,21 @@
     (with-temp-buffer
       (setq default-directory "/rpc:example:/tmp/project/"
             term-sessions-current-name "dev"
-            term-sessions-current-backend 'zmx)
+            term-sessions-current-backend 'zmx
+            term-sessions-current-terminal-p t)
       (should (eq (term-sessions--session-buffer "dev" "/rpc:example:/" 'zmx)
                   (current-buffer))))))
+
+(ert-deftest term-sessions-test-session-buffer-ignores-non-terminal-buffers ()
+  ;; History and other ancillary buffers carry the session name but must
+  ;; never be reused when opening a session.
+  (let ((term-sessions-backend 'zmx))
+    (with-temp-buffer
+      (setq default-directory "/tmp/"
+            term-sessions-current-name "dev"
+            term-sessions-current-backend 'zmx
+            term-sessions-current-terminal-p nil)
+      (should (null (term-sessions--session-buffer "dev" "/home/arthur/" 'zmx))))))
 
 (ert-deftest term-sessions-test-fit-column-pads-and-truncates ()
   (should (equal (term-sessions--fit-column "dev" 5) "dev  "))
@@ -1143,7 +1160,8 @@
           (with-current-buffer buffer
             (setq default-directory "/tmp/project/"
                   term-sessions-current-name "dev"
-                  term-sessions-current-backend 'zmx))
+                  term-sessions-current-backend 'zmx
+                  term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--ensure-zmx)
                      (lambda () (setq ensured t)))
                     ((symbol-function 'term-sessions--open-command-frontend)

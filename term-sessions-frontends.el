@@ -148,7 +148,7 @@ This isolates Ghostel's private process variable from the frontend adapter."
                                          vterm-tramp-shells)
                                vterm-tramp-shells)))
     (vterm buffer-name)
-    (term-sessions--mark-buffer name spec)))
+    (term-sessions--mark-buffer name spec t)))
 
 (defun term-sessions--open-eat (name command buffer-name &optional spec)
   "Open COMMAND in eat BUFFER-NAME for session NAME."
@@ -163,7 +163,7 @@ This isolates Ghostel's private process variable from the frontend adapter."
       (pop-to-buffer buffer)
       (with-current-buffer buffer
         (eat-semi-char-mode)
-        (term-sessions--mark-buffer name spec)))))
+        (term-sessions--mark-buffer name spec t)))))
 
 (defun term-sessions--terminal-buffer-base-name (name buffer-name)
   "Return a terminal base name for NAME from BUFFER-NAME.
@@ -182,7 +182,7 @@ surrounding stars, so BUFFER-NAME is stripped when present."
     (pop-to-buffer buffer)
     (term-mode)
     (term-char-mode)
-    (term-sessions--mark-buffer name spec)))
+    (term-sessions--mark-buffer name spec t)))
 
 (defun term-sessions--open-term-process (name program args buffer-name &optional spec)
   "Open PROGRAM with ARGS in a built-in term buffer for session NAME.
@@ -226,7 +226,7 @@ can be handled by TRAMP or tramp-rpc process file handlers."
     (pop-to-buffer buffer)
     (with-current-buffer buffer
       (term-char-mode)
-      (term-sessions--mark-buffer name spec))
+      (term-sessions--mark-buffer name spec t))
     buffer))
 
 (defun term-sessions--open-tramp-process (name command frontend buffer-name &optional spec)
@@ -248,7 +248,7 @@ COMMAND is the optional zmx creation command for missing sessions."
   (let ((buffer (shell buffer-name)))
     (with-current-buffer buffer
       (comint-send-string buffer (concat command "\n"))
-      (term-sessions--mark-buffer name spec))))
+      (term-sessions--mark-buffer name spec t))))
 
 (defun term-sessions--open-command-frontend (name command frontend buffer-name &optional spec)
   "Open COMMAND for session NAME using command-string FRONTEND."
@@ -267,7 +267,7 @@ COMMAND is the optional zmx creation command for missing sessions."
   (let ((buffer (or (funcall term-sessions-ghostel-open-function buffer-name command)
                     (current-buffer))))
     (with-current-buffer buffer
-      (term-sessions--mark-buffer name spec)
+      (term-sessions--mark-buffer name spec t)
       (term-sessions--install-ghostel-title-tracking name buffer-name)
       (rename-buffer buffer-name t))))
 
