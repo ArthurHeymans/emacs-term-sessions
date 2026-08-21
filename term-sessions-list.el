@@ -210,7 +210,7 @@ connection does not keep distracting later list refreshes."
       (* 3600 (string-to-number (match-string 1 duration))))
      ((string-match "\\`[[:space:]]*\\([0-9]+\\)[[:space:]]*d\\(?:ays?\\)?[[:space:]]*\\'" duration)
       (* 86400 (string-to-number (match-string 1 duration))))
-     ((string-match "\\`[[:space:]]*\\([0-9]+\\)[[:space:]]*weeks?[[:space:]]*\\'" duration)
+     ((string-match "\\`[[:space:]]*\\([0-9]+\\)[[:space:]]*w\\(?:k\\(?:s\\)?\\|ee\\(?:k\\)?s?\\)?[[:space:]]*\\'" duration)
       (* 604800 (string-to-number (match-string 1 duration)))))))
 
 (defun term-sessions-list--entry-label (entry)

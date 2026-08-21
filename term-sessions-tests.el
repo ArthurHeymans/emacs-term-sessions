@@ -1088,6 +1088,12 @@
             term-sessions-current-terminal-p nil)
       (should (null (term-sessions--session-buffer "dev" "/home/arthur/" 'zmx))))))
 
+(ert-deftest term-sessions-test-list-parse-duration-accepts-weeks ()
+  (should (= (term-sessions-list--parse-duration "3w") 1814400))
+  (should (= (term-sessions-list--parse-duration "3 weeks") 1814400))
+  (should (= (term-sessions-list--parse-duration "2h") 7200))
+  (should-not (term-sessions-list--parse-duration "soon")))
+
 (ert-deftest term-sessions-test-fit-column-pads-and-truncates ()
   (should (equal (term-sessions--fit-column "dev" 5) "dev  "))
   (should (equal (string-width (term-sessions--fit-column "development" 5)) 5))
