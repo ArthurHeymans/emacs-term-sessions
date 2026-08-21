@@ -108,7 +108,12 @@ Currently only `zmx' is implemented."
 (defun term-sessions--mark-buffer (name &optional spec)
   "Record NAME/backend/SPEC metadata in the current buffer."
   (setq-local term-sessions-current-name name)
-  (setq-local term-sessions-current-backend term-sessions-backend)
+  ;; Prefer the backend recorded in the spec so buffer lookups keep working
+  ;; even when the default `term-sessions-backend' changes between creating
+  ;; a session buffer and looking for it again.
+  (setq-local term-sessions-current-backend
+              (or (and spec (term-sessions-spec-backend spec))
+                  term-sessions-backend))
   (setq-local term-sessions-current-spec spec))
 
 (defun term-sessions--string-or-nil (value)
