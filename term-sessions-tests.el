@@ -23,6 +23,14 @@
                " dev \n\nbuild\n")))
     (should (equal (term-sessions--zmx-list-names) '("dev" "build")))))
 
+(ert-deftest term-sessions-test-zmx-list-names-fallback-parses-details ()
+  (cl-letf (((symbol-function 'term-sessions--zmx)
+             (lambda (&rest args)
+               (if (equal args '("list" "--short"))
+                   (error "unknown flag: --short")
+                 "name=dev\tpid=1\tclients=0\nname=build\tpid=2\tclients=2\n"))))
+    (should (equal (term-sessions--zmx-list-names) '("dev" "build")))))
+
 (ert-deftest term-sessions-test-stdin-temp-file-prefix-uses-remote-temp-dir ()
   (let ((default-directory "/ssh:user@example:/read-only/project/")
         (temporary-file-directory "/tmp/"))

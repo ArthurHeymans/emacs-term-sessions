@@ -115,11 +115,20 @@ instead of the current project directory, which may be read-only."
 
 (defun term-sessions--zmx-list-names ()
   "Return a list of active zmx session names."
+  ;; Older zmx builds lack --short and return detailed tab-separated
+  ;; key=value rows; extract the names instead of treating whole rows as
+  ;; session names.
   (let ((output (condition-case nil
                     (term-sessions--zmx "list" "--short")
                   (error (term-sessions--zmx "list")))))
-    (seq-filter (lambda (line) (not (string-empty-p line)))
-                (mapcar #'string-trim (split-string output "\n" t)))))
+    (delq nil
+          (mapcar
+           (lambda (line)
+             (or (plist-get (term-sessions--parse-key-value-fields line) :name)
+                 (let ((trimmed (string-trim line)))
+                   (unless (string-empty-p trimmed)
+                     trimmed))))
+           (split-string output "\n" t)))))
 
 (defun term-sessions--parse-key-value-fields (line)
   "Parse tab-separated key=value fields from LINE into a plist."
