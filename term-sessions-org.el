@@ -442,6 +442,13 @@ the visible terminal.  Return `buffer' or `zmx' to describe the send path."
              term-sessions--org-babel-raw-result-conflicts
              #'string=))))
 
+(defun term-sessions--org-babel-shell-language-p (language)
+  "Return non-nil when Babel LANGUAGE block is handled by ob-shell."
+  (and (stringp language)
+       (if (boundp 'org-babel-shell-names)
+           (member (downcase language) org-babel-shell-names)
+         (member (downcase language) '("shell" "sh")))))
+
 ;;;###autoload
 (defun term-sessions-org-babel-execute-src-block (org-babel-execute-src-block-fun
                                                  &rest args)
@@ -453,7 +460,11 @@ renderer such as `drawer' or `org'."
   (let* ((info (or (nth 1 args) (org-babel-get-src-block-info)))
          (params (nth 2 args))
          (merged-params (org-babel-merge-params (nth 2 info) params)))
-    (when (term-sessions--org-babel-raw-result-needed-p merged-params)
+    ;; Only shell blocks are delivered to a terminal session; other
+    ;; languages with a :term-session header must keep their normal result
+    ;; handling.
+    (when (and (term-sessions--org-babel-shell-language-p (nth 0 info))
+               (term-sessions--org-babel-raw-result-needed-p merged-params))
       (let ((raw-params (org-babel-merge-params params '((:results . "raw")))))
         ;; Do not always pass through every optional argument.  Some popular
         ;; Org advice (for example Doom's async advice) supports older Org

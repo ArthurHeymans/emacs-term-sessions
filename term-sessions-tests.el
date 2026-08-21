@@ -416,6 +416,24 @@
         (should-not (string-match-p "#\\+RESULTS:\n: \\[\\[term-session:spec:"
                                     contents))))))
 
+(ert-deftest term-sessions-test-org-babel-raw-advice-skips-non-shell-blocks ()
+  ;; A :term-session header on a non-shell block must not force raw
+  ;; results; only shell blocks are delivered to a terminal.
+  (require 'org)
+  (let (received)
+    (cl-letf (((symbol-function 'term-sessions--org-babel-session-name)
+               (lambda (_params) "dev")))
+      (with-temp-buffer
+        (org-mode)
+        (insert "#+begin_src python :term-session dev\nprint(1)\n#+end_src\n")
+        (goto-char (point-min))
+        (let ((info (org-babel-get-src-block-info)))
+          (term-sessions-org-babel-execute-src-block
+           (lambda (&rest args) (setq received args))
+           nil info '((:term-session . "dev"))))
+        (should received)
+        (should (equal (nth 2 received) '((:term-session . "dev"))))))))
+
 (ert-deftest term-sessions-test-org-babel-raw-advice-does-not-add-trailing-nil ()
   (require 'org)
   (with-temp-buffer
