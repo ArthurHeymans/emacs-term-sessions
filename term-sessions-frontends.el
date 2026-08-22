@@ -45,6 +45,11 @@ This is intentionally pluggable because ghostel APIs are still evolving."
   :group 'term-sessions
   :type '(choice (const :tag "Disabled" nil) function))
 
+(defcustom term-sessions-default-command nil
+  "Command to run in zmx session (i.e. /bin/bash). If nil, the zmx default $SHELL is used."
+  :group 'term-sessions
+  :type 'string)
+
 (defun term-sessions--ghostel-live-process-p ()
   "Return non-nil when the current Ghostel buffer has a live process.
 This isolates Ghostel's private process variable from the frontend adapter."
@@ -333,7 +338,8 @@ session to already exist according to zmx in the entry/current directory."
          (default-directory (if entry
                                 (term-sessions--entry-cwd-directory entry)
                               default-directory))
-         (name (term-sessions--entry-name name)))
+         (name (term-sessions--entry-name name))
+	 (command (or command term-sessions-default-command)))
     (or (term-sessions--pop-existing-session-buffer
          name default-directory term-sessions-backend)
         (progn
