@@ -23,11 +23,39 @@
                " dev \n\nbuild\n")))
     (should (equal (term-sessions--zmx-list-names) '("dev" "build")))))
 
+(ert-deftest term-sessions-test-zmx-list-names-fallback-parses-details ()
+  (cl-letf (((symbol-function 'term-sessions--zmx)
+             (lambda (&rest args)
+               (if (equal args '("list" "--short"))
+                   (error "unknown flag: --short")
+                 "name=dev\tpid=1\tclients=0\nname=build\tpid=2\tclients=2\n"))))
+    (should (equal (term-sessions--zmx-list-names) '("dev" "build")))))
+
 (ert-deftest term-sessions-test-stdin-temp-file-prefix-uses-remote-temp-dir ()
   (let ((default-directory "/ssh:user@example:/read-only/project/")
         (temporary-file-directory "/tmp/"))
     (should (equal (term-sessions--stdin-temp-file-prefix)
                    "/ssh:user@example:/tmp/term-sessions-stdin-"))))
+
+(ert-deftest term-sessions-test-ensure-zmx-probes-remote-host ()
+  (clrhash term-sessions--remote-zmx-availability)
+  (let ((default-directory "/ssh:user@example:/tmp/")
+        probes)
+    (cl-letf (((symbol-function 'process-file)
+               (lambda (_program _infile _dest _display &rest args)
+                 (push args probes)
+                 0)))
+      (term-sessions--ensure-zmx)
+      (term-sessions--ensure-zmx)
+      (should (equal (car probes) '("-c" "command -v zmx")))
+      ;; The remote probe is cached per remote and program.
+      (should (= (length probes) 1)))))
+
+(ert-deftest term-sessions-test-ensure-zmx-errors-for-missing-remote-zmx ()
+  (clrhash term-sessions--remote-zmx-availability)
+  (let ((default-directory "/ssh:user@example:/tmp/"))
+    (cl-letf (((symbol-function 'process-file) (lambda (&rest _args) 1)))
+      (should-error (term-sessions--ensure-zmx) :type 'user-error))))
 
 (ert-deftest term-sessions-test-zmx-list-sessions-parses-details ()
   (let ((term-sessions-zmx-enrich-process-info nil))
@@ -36,8 +64,7 @@
                  (should (equal args '("list")))
                  "  name=dev\tpid=123\tclients=2\tcreated=1781290004\tstart_dir=/repo\tcmd=/bin/bash -l\n"))
               ((symbol-function 'term-sessions--zmx-log-mtime)
-               (lambda (name)
-                 (should (equal name "dev"))
+               (lambda (_name &optional _log-dir)
                  0)))
       (should (equal (term-sessions--zmx-list-sessions)
                      '((:name "dev" :pid "123" :clients "2" :created "1781290004"
@@ -47,6 +74,21 @@
   (cl-letf (((symbol-function 'term-sessions--zmx)
              (lambda (&rest _args) (error "TRAMP failed"))))
     (should-error (term-sessions--zmx-list-sessions) :type 'error)))
+
+(ert-deftest term-sessions-test-zmx-list-sessions-resolves-log-dir-once ()
+  (let ((log-dir-calls 0))
+    (cl-letf (((symbol-function 'term-sessions--zmx)
+               (lambda (&rest _args)
+                 "name=a\tclients=0\nname=b\tclients=1\n"))
+              ((symbol-function 'term-sessions--zmx-log-dir)
+               (lambda ()
+                 (cl-incf log-dir-calls)
+                 "/tmp/zmx-logs"))
+              ((symbol-function 'file-attributes)
+               (lambda (&rest _args) nil))
+              (term-sessions-zmx-enrich-process-info nil))
+      (should (= (length (term-sessions--zmx-list-sessions)) 2))
+      (should (= log-dir-calls 1)))))
 
 (ert-deftest term-sessions-test-zmx-log-file-preserves-remote-tilde ()
   (let ((default-directory "/ssh:remote-user@example:/repo/"))
@@ -63,7 +105,8 @@
              (lambda (&rest args)
                (should (equal args '("list")))
                "name=dev\tpid=123\tclients=0\tstart_dir=/repo\tcmd=/bin/bash -l\n"))
-            ((symbol-function 'term-sessions--zmx-log-mtime) (lambda (_name) nil))
+            ((symbol-function 'term-sessions--zmx-log-mtime)
+             (lambda (_name &optional _log-dir) nil))
             ((symbol-function 'term-sessions--zmx-process-cwd)
              (lambda (pid)
                (should (equal pid "123"))
@@ -143,6 +186,22 @@
       (should (string-prefix-p "dev" (plist-get stored :description)))
       (should (string-match-p "ssh:user@example" (plist-get stored :description)))
       (should (string-match-p "/tmp/project" (plist-get stored :description))))))
+
+(ert-deftest term-sessions-test-store-org-link-explicit-name-beats-buffer-spec ()
+  ;; An explicit session name must not be stored with another session's
+  ;; buffer spec.
+  (let ((default-directory "/tmp/project")
+        (term-sessions-current-time-function (lambda () 0))
+        (term-sessions-current-name "dev")
+        (term-sessions-current-spec
+         (term-sessions-spec-create :name "dev" :backend 'zmx
+                                    :cwd "/tmp/project/"))
+        stored)
+    (cl-letf (((symbol-function 'org-link-store-props)
+               (lambda (&rest plist) (setq stored plist))))
+      (term-sessions-store-org-link "other")
+      (should (string-match-p "name=other" (plist-get stored :link)))
+      (should (string-prefix-p "other" (plist-get stored :description))))))
 
 (ert-deftest term-sessions-test-store-org-link-ignores-numeric-org-arg ()
   (let ((default-directory "/home/arthur/")
@@ -234,7 +293,8 @@
           (with-current-buffer buffer
             (setq default-directory "/tmp/")
             (setq-local term-sessions-current-name "dev")
-            (setq-local term-sessions-current-backend 'zmx))
+            (setq-local term-sessions-current-backend 'zmx)
+            (setq-local term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--active-p)
                      (lambda (name) (equal name "dev")))
                     ((symbol-function 'pop-to-buffer)
@@ -281,6 +341,10 @@
                     (format "name=dev&%s=value" unknown))
                    '(:name "dev")))
     (should-not (intern-soft (concat ":" unknown)))))
+
+(ert-deftest term-sessions-test-org-query-keeps-values-containing-equals ()
+  (should (equal (term-sessions--org-decode-query "command=make VAR=1")
+                 '(:command "make VAR=1"))))
 
 (ert-deftest term-sessions-test-org-rejects-unknown-frontend-without-interning ()
   (let ((unknown "term-sessions-test-never-intern-this-frontend"))
@@ -372,6 +436,24 @@
         (should-not (string-match-p "#\\+RESULTS:\n: \\[\\[term-session:spec:"
                                     contents))))))
 
+(ert-deftest term-sessions-test-org-babel-raw-advice-skips-non-shell-blocks ()
+  ;; A :term-session header on a non-shell block must not force raw
+  ;; results; only shell blocks are delivered to a terminal.
+  (require 'org)
+  (let (received)
+    (cl-letf (((symbol-function 'term-sessions--org-babel-session-name)
+               (lambda (_params) "dev")))
+      (with-temp-buffer
+        (org-mode)
+        (insert "#+begin_src python :term-session dev\nprint(1)\n#+end_src\n")
+        (goto-char (point-min))
+        (let ((info (org-babel-get-src-block-info)))
+          (term-sessions-org-babel-execute-src-block
+           (lambda (&rest args) (setq received args))
+           nil info '((:term-session . "dev"))))
+        (should received)
+        (should (equal (nth 2 received) '((:term-session . "dev"))))))))
+
 (ert-deftest term-sessions-test-org-babel-raw-advice-does-not-add-trailing-nil ()
   (require 'org)
   (with-temp-buffer
@@ -394,7 +476,8 @@
           (with-current-buffer buffer
             (setq default-directory "/tmp/")
             (setq-local term-sessions-current-name "dev")
-            (setq-local term-sessions-current-backend 'zmx))
+            (setq-local term-sessions-current-backend 'zmx)
+            (setq-local term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--zmx-with-stdin)
                      (lambda (&rest _args) (error "Should not call zmx send"))))
             (should (eq (term-sessions--org-babel-send-now "dev" "echo hi")
@@ -458,7 +541,8 @@
           (with-current-buffer buffer
             (setq default-directory "/ssh:user@example:/tmp/project/")
             (setq-local term-sessions-current-name "dev")
-            (setq-local term-sessions-current-backend 'zmx))
+            (setq-local term-sessions-current-backend 'zmx)
+            (setq-local term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'process-send-string)
                      (lambda (proc string)
                        (setq sent (list proc string)))))
@@ -553,7 +637,8 @@
           (with-current-buffer buffer
             (setq default-directory "/tmp/project/"
                   term-sessions-current-name "dev"
-                  term-sessions-current-backend 'zmx))
+                  term-sessions-current-backend 'zmx
+                  term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--ensure-zmx)
                      (lambda () (setq ensured t)))
                     ((symbol-function 'term-sessions--open-command-frontend)
@@ -753,6 +838,43 @@
                   "dev" "*term-session:dev: [ssh:host] /repo*")
                  "term-session:dev: [ssh:host] /repo")))
 
+(ert-deftest term-sessions-test-open-term-process-initializes-stty ()
+  ;; Mirror term.el: the attach must run through an stty init wrapper so
+  ;; remote terminals get sane rows/columns without a pty resize ioctl.
+  (let ((buffer (get-buffer-create "*term-session:dev*"))
+        captured)
+    (unwind-protect
+        (progn
+          ;; term.el only sets these buffer-locals in `term-mode'; provide
+          ;; them the way a real term buffer would have.
+          (with-current-buffer buffer
+            (setq-local term-height 24)
+            (setq-local term-width 80)
+            (setq-local term-term-name "eterm-color")
+            (setq-local term-termcap-format "%s")
+            (setq-local term-protocol-version "2.1")
+            (setq-local term-set-terminal-size nil)
+            (setq default-directory "/tmp/"))
+          (cl-letf (((symbol-function 'term-check-proc) #'ignore)
+                    ((symbol-function 'term-mode) #'ignore)
+                    ((symbol-function 'term-char-mode) #'ignore)
+                    ((symbol-function 'pop-to-buffer) #'ignore)
+                    ((symbol-function 'set-process-sentinel) #'ignore)
+                    ((symbol-function 'start-file-process)
+                     (lambda (_name _buf &rest args)
+                       (setq captured args)
+                       (start-process "term-sessions-test-stty" nil "true"))))
+            (term-sessions--open-term-process
+             "dev" "/bin/zmx" '("attach" "dev") "*term-session:dev*")
+            (should (equal (nth 0 captured) "/bin/sh"))
+            (should (equal (nth 1 captured) "-c"))
+            (should (string-prefix-p "stty" (nth 2 captured)))
+            (should (equal (nth 3 captured) ".."))
+            (should (equal (nth 4 captured) "/bin/zmx"))
+            (should (equal (nthcdr 5 captured) '("attach" "dev")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest term-sessions-test-open-term-uses-buffer-name-base ()
   (let ((buffer (generate-new-buffer " *term-sessions-test-term-open*"))
         make-term-name)
@@ -880,7 +1002,9 @@
                      '("/ssh:host:/"))))))
 
 (ert-deftest term-sessions-test-list-session-rows-queries-known-directories ()
-  (let (queried cleared)
+  ;; Earlier tests may have cached remote failures in the shared cache.
+  (clrhash term-sessions-list--failed-remotes)
+  (let (queried remote-queried cleared)
     (cl-letf (((symbol-function 'term-sessions-list--local-directory)
                (lambda () "/home/me/"))
               ((symbol-function 'term-sessions-list--session-buffer-directories)
@@ -892,20 +1016,54 @@
               ((symbol-function 'term-sessions-list--query-directory)
                (lambda (directory)
                  (push directory queried)
+                 (list (list (list :name directory :directory directory) []))))
+              ((symbol-function 'term-sessions-list--query-remote-directory)
+               (lambda (directory)
+                 (push directory remote-queried)
                  (list (list (list :name directory :directory directory) [])))))
       (should (equal (mapcar (lambda (row) (plist-get (car row) :directory))
                              (term-sessions-list--session-rows))
                      '("/home/me/" "/ssh:host:/repo/" "/ssh:other:/")))
-      (should (equal (nreverse queried)
-                     '("/home/me/" "/ssh:host:/repo/" "/ssh:other:/")))
+      (should (equal queried '("/home/me/")))
+      ;; "/ssh:host:/" and "/ssh:host:/repo/" share a backend identity.
+      (should (equal (nreverse remote-queried)
+                     '("/ssh:host:/repo/" "/ssh:other:/")))
       (should (equal cleared '("/ssh:host:/repo/"))))))
+
+(ert-deftest term-sessions-test-list-bounded-remote-query-parses-output ()
+  (let ((term-sessions-list-remote-query-timeout 5))
+    (clrhash term-sessions--remote-zmx-availability)
+    (cl-letf (((symbol-function 'process-file) (lambda (&rest _args) 0))
+              ((symbol-function 'start-file-process)
+               (lambda (_name buffer &rest _args)
+                 (start-process "term-sessions-test-list" buffer
+                                "echo" "name=dev\tclients=0"))))
+      (should (equal (mapcar (lambda (row) (plist-get (car row) :name))
+                             (term-sessions-list--bounded-remote-rows
+                              "/ssh:host:/" 5))
+                     '("dev"))))))
+
+(ert-deftest term-sessions-test-list-bounded-remote-query-times-out ()
+  (let ((term-sessions-list-remote-query-timeout 5)
+        failures)
+    (clrhash term-sessions--remote-zmx-availability)
+    (cl-letf (((symbol-function 'process-file) (lambda (&rest _args) 0))
+              ((symbol-function 'start-file-process)
+               (lambda (_name buffer &rest _args)
+                 (start-process "term-sessions-test-list" buffer "sleep" "5")))
+              ((symbol-function 'term-sessions-list--record-remote-failure)
+               (lambda (_directory reason) (push reason failures))))
+      (should (null (term-sessions-list--bounded-remote-rows
+                     "/ssh:slow:/" 0)))
+      (should (string-prefix-p "timed out" (car failures))))))
 
 (ert-deftest term-sessions-test-finds-existing-local-session-buffer ()
   (let ((term-sessions-backend 'zmx))
     (with-temp-buffer
       (setq default-directory "/tmp/"
             term-sessions-current-name "dev"
-            term-sessions-current-backend 'zmx)
+            term-sessions-current-backend 'zmx
+            term-sessions-current-terminal-p t)
       (should (eq (term-sessions--session-buffer "dev" "/home/arthur/" 'zmx)
                   (current-buffer))))))
 
@@ -914,9 +1072,27 @@
     (with-temp-buffer
       (setq default-directory "/rpc:example:/tmp/project/"
             term-sessions-current-name "dev"
-            term-sessions-current-backend 'zmx)
+            term-sessions-current-backend 'zmx
+            term-sessions-current-terminal-p t)
       (should (eq (term-sessions--session-buffer "dev" "/rpc:example:/" 'zmx)
                   (current-buffer))))))
+
+(ert-deftest term-sessions-test-session-buffer-ignores-non-terminal-buffers ()
+  ;; History and other ancillary buffers carry the session name but must
+  ;; never be reused when opening a session.
+  (let ((term-sessions-backend 'zmx))
+    (with-temp-buffer
+      (setq default-directory "/tmp/"
+            term-sessions-current-name "dev"
+            term-sessions-current-backend 'zmx
+            term-sessions-current-terminal-p nil)
+      (should (null (term-sessions--session-buffer "dev" "/home/arthur/" 'zmx))))))
+
+(ert-deftest term-sessions-test-list-parse-duration-accepts-weeks ()
+  (should (= (term-sessions-list--parse-duration "3w") 1814400))
+  (should (= (term-sessions-list--parse-duration "3 weeks") 1814400))
+  (should (= (term-sessions-list--parse-duration "2h") 7200))
+  (should-not (term-sessions-list--parse-duration "soon")))
 
 (ert-deftest term-sessions-test-fit-column-pads-and-truncates ()
   (should (equal (term-sessions--fit-column "dev" 5) "dev  "))
@@ -1143,7 +1319,8 @@
           (with-current-buffer buffer
             (setq default-directory "/tmp/project/"
                   term-sessions-current-name "dev"
-                  term-sessions-current-backend 'zmx))
+                  term-sessions-current-backend 'zmx
+                  term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--ensure-zmx)
                      (lambda () (setq ensured t)))
                     ((symbol-function 'term-sessions--open-command-frontend)

@@ -53,6 +53,11 @@ Currently only `zmx' is implemented."
 (defvar-local term-sessions-current-spec nil
   "`term-sessions-spec' object for the session associated with the current buffer.")
 
+(defvar-local term-sessions-current-terminal-p nil
+  "Non-nil in buffers that own a live terminal frontend attach.
+Ancillary term-session buffers such as history views are marked with the
+session name but must never be reused when opening a session.")
+
 (cl-defstruct (term-sessions-location
                (:constructor term-sessions-location-create)
                (:copier nil))
@@ -105,11 +110,19 @@ Currently only `zmx' is implemented."
 `make-term' adds the surrounding stars itself."
   (format "term-session:%s" name))
 
-(defun term-sessions--mark-buffer (name &optional spec)
-  "Record NAME/backend/SPEC metadata in the current buffer."
+(defun term-sessions--mark-buffer (name &optional spec terminal-p)
+  "Record NAME/backend/SPEC metadata in the current buffer.
+TERMINAL-P marks the buffer as owning a terminal frontend attach; only
+such buffers are reused by `term-sessions--session-buffer'."
   (setq-local term-sessions-current-name name)
-  (setq-local term-sessions-current-backend term-sessions-backend)
-  (setq-local term-sessions-current-spec spec))
+  ;; Prefer the backend recorded in the spec so buffer lookups keep working
+  ;; even when the default `term-sessions-backend' changes between creating
+  ;; a session buffer and looking for it again.
+  (setq-local term-sessions-current-backend
+              (or (and spec (term-sessions-spec-backend spec))
+                  term-sessions-backend))
+  (setq-local term-sessions-current-spec spec)
+  (setq-local term-sessions-current-terminal-p terminal-p))
 
 (defun term-sessions--string-or-nil (value)
   "Return VALUE unless it is nil or the empty string."
@@ -183,7 +196,8 @@ keyed to the local backend rather than to one cwd."
                    (equal term-sessions-current-name name)
                    (eq term-sessions-current-backend backend)
                    (equal (term-sessions--directory-key default-directory)
-                          directory-key))
+                          directory-key)
+                   term-sessions-current-terminal-p)
           (setq found buffer))))
     found))
 

@@ -45,14 +45,42 @@ This is best-effort and currently works on Linux hosts with `/proc' and `ps'."
          (setenv "ZMX_SESSION_PREFIX" term-sessions-zmx-session-prefix))
        ,@body)))
 
+(defvar term-sessions--remote-zmx-availability (make-hash-table :test #'equal)
+  "Cached remote zmx availability, keyed by remote prefix and program.")
+
+(defun term-sessions--remote-zmx-available-p (program)
+  "Return non-nil when PROGRAM can be found on the remote host.
+The check runs `command -v' over the TRAMP connection so a missing or
+misnamed remote program is reported clearly instead of surfacing as an
+opaque `process-file' failure later.  Successful checks are cached per
+remote and program for the current Emacs session; failures are retried
+so a transient connection problem cannot disable a host permanently."
+  (let* ((remote (file-remote-p default-directory))
+         (key (concat remote "\0" program)))
+    (or (gethash key term-sessions--remote-zmx-availability)
+        (let ((available
+               (eq 0 (process-file "sh" nil nil nil "-c"
+                                   (concat "command -v "
+                                           (shell-quote-argument program))))))
+          ;; Only cache successes so a failed probe is retried later.
+          (when available
+            (puthash key available term-sessions--remote-zmx-availability))
+          available))))
+
 (defun term-sessions--ensure-zmx ()
-  "Signal an error unless zmx is clearly unavailable.
+  "Signal an error when zmx is unavailable.
 For remote `default-directory' values, defer to `process-file' and the
 remote file handler so the remote PATH and connection-local settings apply."
   (term-sessions-zmx--with-environment
-    (unless (or (file-remote-p default-directory)
-                (executable-find term-sessions-zmx-program))
-      (user-error "Cannot find zmx executable `%s'" term-sessions-zmx-program))))
+    (if (file-remote-p default-directory)
+        (unless (term-sessions--remote-zmx-available-p
+                 term-sessions-zmx-program)
+          (user-error "Cannot find zmx executable `%s' on %s"
+                      term-sessions-zmx-program
+                      (file-remote-p default-directory)))
+      (unless (executable-find term-sessions-zmx-program)
+        (user-error "Cannot find zmx executable `%s'"
+                    term-sessions-zmx-program)))))
 
 (defun term-sessions--call-process-file (program infile &rest args)
   "Run PROGRAM with INFILE and ARGS, returning stdout as a string.
@@ -113,13 +141,32 @@ instead of the current project directory, which may be read-only."
   (when (memq (process-status process) '(exit signal))
     (message "%s %s" (process-name process) (string-trim event))))
 
+(defun term-sessions--zmx-run-sentinel (process event)
+  "Report EVENT for an async `zmx run' PROCESS and drop its buffer.
+The output buffer is only kept when a window is displaying it." 
+  (term-sessions--zmx-process-sentinel process event)
+  (when (memq (process-status process) '(exit signal))
+    (let ((buffer (process-buffer process)))
+      (when (and (buffer-live-p buffer)
+                 (not (get-buffer-window buffer 'visible)))
+        (kill-buffer buffer)))))
+
 (defun term-sessions--zmx-list-names ()
   "Return a list of active zmx session names."
+  ;; Older zmx builds lack --short and return detailed tab-separated
+  ;; key=value rows; extract the names instead of treating whole rows as
+  ;; session names.
   (let ((output (condition-case nil
                     (term-sessions--zmx "list" "--short")
                   (error (term-sessions--zmx "list")))))
-    (seq-filter (lambda (line) (not (string-empty-p line)))
-                (mapcar #'string-trim (split-string output "\n" t)))))
+    (delq nil
+          (mapcar
+           (lambda (line)
+             (or (plist-get (term-sessions--parse-key-value-fields line) :name)
+                 (let ((trimmed (string-trim line)))
+                   (unless (string-empty-p trimmed)
+                     trimmed))))
+           (split-string output "\n" t)))))
 
 (defun term-sessions--parse-key-value-fields (line)
   "Parse tab-separated key=value fields from LINE into a plist."
@@ -165,9 +212,12 @@ local `~' expansion can rewrite them to the local user home."
           (plist-get (term-sessions--zmx-version-info) :log_dir)
         (error nil))))
 
-(defun term-sessions--zmx-log-mtime (name)
-  "Return modification time for zmx session NAME log, or nil."
-  (when-let ((log-dir (term-sessions--zmx-log-dir)))
+(defun term-sessions--zmx-log-mtime (name &optional log-dir)
+  "Return modification time for zmx session NAME log, or nil.
+LOG-DIR defaults to `term-sessions--zmx-log-dir', which may spawn a
+`zmx version' process; callers listing many sessions should resolve it
+once and pass it here."
+  (when-let* ((log-dir (or log-dir (term-sessions--zmx-log-dir))))
     (when-let ((attrs (ignore-errors
                         (file-attributes
                          (term-sessions--zmx-log-file-name name log-dir)))))
@@ -228,16 +278,19 @@ local `~' expansion can rewrite them to the local user home."
 Fields include at least :name, and may include :pid, :clients, :created,
 :start_dir, :cmd, and :updated-time.  Propagate `zmx list' errors so callers
 can distinguish failures from an empty session list."
-  (let ((output (term-sessions--zmx "list")))
+  ;; Resolve the log directory once so listing N sessions does not spawn N
+  ;; `zmx version' processes.
+  (let* ((log-dir (term-sessions--zmx-log-dir))
+         (output (term-sessions--zmx "list")))
     (delq nil
           (mapcar
            (lambda (line)
              (unless (or (string-empty-p (string-trim line))
                          (string-prefix-p "no sessions found" line))
                (let ((entry (term-sessions--parse-key-value-fields line)))
-                 (when-let ((name (plist-get entry :name)))
+                 (when-let* ((name (plist-get entry :name)))
                    (plist-put entry :updated-time
-                              (term-sessions--zmx-log-mtime name))
+                              (term-sessions--zmx-log-mtime name log-dir))
                    (term-sessions--zmx-enrich-session-process-info entry)))))
            (split-string output "\n" t)))))
 
@@ -388,7 +441,7 @@ This starts `zmx run NAME -d COMMAND...' and returns immediately.  Use
                        (split-string-and-unquote command)))
          (proc (apply #'term-sessions--start-zmx-process
                       (format "term-session-run:%s" name) buffer args)))
-    (set-process-sentinel proc #'term-sessions--zmx-process-sentinel)
+    (set-process-sentinel proc #'term-sessions--zmx-run-sentinel)
     (message "Started async zmx run in %s" name)
     proc))
 

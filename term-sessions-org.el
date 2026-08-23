@@ -105,12 +105,15 @@ an Emacs buffer is opened first and the block is sent through that buffer."
   "Decode supported fields from QUERY into a plist with keyword keys."
   (let (plist)
     (dolist (part (split-string query "&" t))
-      (pcase-let ((`(,encoded-key ,encoded-value) (split-string part "=")))
-        (when-let ((key (cdr (assoc (url-unhex-string encoded-key)
-                                   term-sessions--org-query-keys))))
-          (setq plist (plist-put plist key
-                                 (url-unhex-string
-                                  (or encoded-value "")))))))
+      ;; Split on the first = only so unencoded values containing `='
+      ;; survive; package-generated links percent-encode values.
+      (when-let* ((eq (string-search "=" part)))
+        (let ((encoded-key (substring part 0 eq))
+              (encoded-value (substring part (1+ eq))))
+          (when-let* ((key (cdr (assoc (url-unhex-string encoded-key)
+                                       term-sessions--org-query-keys))))
+            (setq plist (plist-put plist key
+                                   (url-unhex-string encoded-value)))))))
     plist))
 
 (defun term-sessions--spec-org-link (spec)
@@ -183,11 +186,18 @@ argument otherwise."
   (let ((name (or (and (stringp name-or-interactive) name-or-interactive)
                   term-sessions-current-name)))
     (when (or name (called-interactively-p 'interactive))
-      (let* ((name (or name (term-sessions--read-name "Store link for session: " t)))
-             (backend (or term-sessions-current-backend term-sessions-backend))
-             (spec (or term-sessions-current-spec
-                       (let ((term-sessions-backend backend))
-                         (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
+    (let* ((name (or name (term-sessions--read-name "Store link for session: " t)))
+           (backend (or term-sessions-current-backend term-sessions-backend))
+           ;; Reuse the buffer's spec only when it actually names the
+           ;; requested session; an explicit name must win over stale
+           ;; buffer metadata.
+           (current-spec term-sessions-current-spec)
+           (spec (if (and current-spec
+                          (equal (term-sessions-spec-name current-spec) name))
+                     current-spec
+                   (let ((term-sessions-backend backend))
+                     (term-sessions-spec-current
+                      name nil term-sessions-preferred-frontend))))
              (link (term-sessions--spec-org-link spec))
              (description (term-sessions--org-link-description name spec)))
         (if (fboundp 'org-link-store-props)
@@ -432,6 +442,13 @@ the visible terminal.  Return `buffer' or `zmx' to describe the send path."
              term-sessions--org-babel-raw-result-conflicts
              #'string=))))
 
+(defun term-sessions--org-babel-shell-language-p (language)
+  "Return non-nil when Babel LANGUAGE block is handled by ob-shell."
+  (and (stringp language)
+       (if (boundp 'org-babel-shell-names)
+           (member (downcase language) org-babel-shell-names)
+         (member (downcase language) '("shell" "sh")))))
+
 ;;;###autoload
 (defun term-sessions-org-babel-execute-src-block (org-babel-execute-src-block-fun
                                                  &rest args)
@@ -443,7 +460,11 @@ renderer such as `drawer' or `org'."
   (let* ((info (or (nth 1 args) (org-babel-get-src-block-info)))
          (params (nth 2 args))
          (merged-params (org-babel-merge-params (nth 2 info) params)))
-    (when (term-sessions--org-babel-raw-result-needed-p merged-params)
+    ;; Only shell blocks are delivered to a terminal session; other
+    ;; languages with a :term-session header must keep their normal result
+    ;; handling.
+    (when (and (term-sessions--org-babel-shell-language-p (nth 0 info))
+               (term-sessions--org-babel-raw-result-needed-p merged-params))
       (let ((raw-params (org-babel-merge-params params '((:results . "raw")))))
         ;; Do not always pass through every optional argument.  Some popular
         ;; Org advice (for example Doom's async advice) supports older Org

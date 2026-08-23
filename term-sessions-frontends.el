@@ -153,7 +153,7 @@ This isolates Ghostel's private process variable from the frontend adapter."
                                          vterm-tramp-shells)
                                vterm-tramp-shells)))
     (vterm buffer-name)
-    (term-sessions--mark-buffer name spec)))
+    (term-sessions--mark-buffer name spec t)))
 
 (defun term-sessions--open-eat (name command buffer-name &optional spec)
   "Open COMMAND in eat BUFFER-NAME for session NAME."
@@ -168,7 +168,7 @@ This isolates Ghostel's private process variable from the frontend adapter."
       (pop-to-buffer buffer)
       (with-current-buffer buffer
         (eat-semi-char-mode)
-        (term-sessions--mark-buffer name spec)))))
+        (term-sessions--mark-buffer name spec t)))))
 
 (defun term-sessions--terminal-buffer-base-name (name buffer-name)
   "Return a terminal base name for NAME from BUFFER-NAME.
@@ -187,7 +187,7 @@ surrounding stars, so BUFFER-NAME is stripped when present."
     (pop-to-buffer buffer)
     (term-mode)
     (term-char-mode)
-    (term-sessions--mark-buffer name spec)))
+    (term-sessions--mark-buffer name spec t)))
 
 (defun term-sessions--open-term-process (name program args buffer-name &optional spec)
   "Open PROGRAM with ARGS in a built-in term buffer for session NAME.
@@ -213,6 +213,12 @@ can be handled by TRAMP or tramp-rpc process file handlers."
                           term-term-name term-height term-width)
                   (format "INSIDE_EMACS=%s,term:%s"
                           emacs-version term-protocol-version))
+                 ;; Mirror term.el's bash workaround so remote shells see it
+                 ;; too.
+                 (when (and (fboundp 'term--bash-needs-EMACSp)
+                            (term--bash-needs-EMACSp))
+                   (list (format "EMACS=%s (term:%s)"
+                                 emacs-version term-protocol-version)))
                  (when term-set-terminal-size
                    (list (format "LINES=%d" term-height)
                          (format "COLUMNS=%d" term-width)))
@@ -220,18 +226,28 @@ can be handled by TRAMP or tramp-rpc process file handlers."
                (process-connection-type t)
                (inhibit-eol-conversion t)
                (coding-system-for-read 'binary)
+               ;; Mirror term.el's `term-exec-1' init: over TRAMP there is no
+               ;; pty resize ioctl, so initialize the terminal driver with
+               ;; stty before exec'ing the real command.
                (proc (apply #'start-file-process
                             base-name
-                            buffer program args)))
+                            buffer
+                            "/bin/sh" "-c"
+                            (format "stty -nl echo rows %d columns %d sane 2>%s;\
+if [ $1 = .. ]; then shift; fi; exec \"$@\""
+                                    term-height term-width null-device)
+                            ".."
+                            program args)))
           (setq-local term-ptyp process-connection-type)
           (goto-char (point-max))
           (set-marker (process-mark proc) (point))
           (set-process-filter proc #'term-emulate-terminal)
-          (set-process-sentinel proc #'term-sentinel))))
+          (set-process-sentinel proc #'term-sentinel)
+          (run-hooks 'term-exec-hook))))
     (pop-to-buffer buffer)
     (with-current-buffer buffer
       (term-char-mode)
-      (term-sessions--mark-buffer name spec))
+      (term-sessions--mark-buffer name spec t))
     buffer))
 
 (defun term-sessions--open-tramp-process (name command frontend buffer-name &optional spec)
@@ -253,7 +269,7 @@ COMMAND is the optional zmx creation command for missing sessions."
   (let ((buffer (shell buffer-name)))
     (with-current-buffer buffer
       (comint-send-string buffer (concat command "\n"))
-      (term-sessions--mark-buffer name spec))))
+      (term-sessions--mark-buffer name spec t))))
 
 (defun term-sessions--open-command-frontend (name command frontend buffer-name &optional spec)
   "Open COMMAND for session NAME using command-string FRONTEND."
@@ -272,7 +288,7 @@ COMMAND is the optional zmx creation command for missing sessions."
   (let ((buffer (or (funcall term-sessions-ghostel-open-function buffer-name command)
                     (current-buffer))))
     (with-current-buffer buffer
-      (term-sessions--mark-buffer name spec)
+      (term-sessions--mark-buffer name spec t)
       (term-sessions--install-ghostel-title-tracking name buffer-name)
       (rename-buffer buffer-name t))))
 
