@@ -25,8 +25,6 @@
 (declare-function ghostel--send-string "ghostel" (string))
 (declare-function ghostel-semi-char-mode "ghostel" ())
 (declare-function term-send-raw-string "term" (string))
-(defvar ghostel--process nil)
-(defvar ghostel--input-mode nil)
 
 (defcustom term-sessions-org-babel-default-session-name "org-babel"
   "Default zmx session name for Org Babel blocks.
@@ -309,14 +307,12 @@ through the normal visible frontend and return `created'."
 (defun term-sessions--ghostel-buffer-process ()
   "Return the current Ghostel buffer's live process, or nil.
 This isolates Ghostel's private process storage from Babel send logic."
-  (when (and (boundp 'ghostel--process)
-             (process-live-p ghostel--process))
-    ghostel--process))
+  (when (process-live-p (bound-and-true-p ghostel--process))
+    (bound-and-true-p ghostel--process)))
 
 (defun term-sessions--ghostel-copy-mode-p ()
   "Return non-nil when Ghostel is in a non-input mode."
-  (and (boundp 'ghostel--input-mode)
-       (memq ghostel--input-mode '(copy emacs))))
+  (memq (bound-and-true-p ghostel--input-mode) '(copy emacs)))
 
 (defun term-sessions--ghostel-send-string (input)
   "Send INPUT through Ghostel's native input path."
@@ -517,18 +513,19 @@ offer to recreate it with the stored command and cwd."
       (when (yes-or-no-p (format "Session `%s' is not active; recreate it? " name))
         (term-sessions-open-with-frontend name command frontend t)))))
 
-(with-eval-after-load 'org
+;; Registering the link and advices up front is safe: `advice-add' accepts
+;; not-yet-loaded functions, and `org-load-hook' fires when Org arrives.
+(defun term-sessions--org-register-link ()
+  "Register the `term-session' Org link type."
   (org-link-set-parameters "term-session"
                            :follow #'term-sessions--open-org-path
                            :store #'term-sessions-store-org-link))
+(add-hook 'org-load-hook #'term-sessions--org-register-link)
 
-(with-eval-after-load 'ob-core
-  (advice-add 'org-babel-execute-src-block
-              :around #'term-sessions-org-babel-execute-src-block))
-
-(with-eval-after-load 'ob-shell
-  (advice-add 'org-babel-execute:shell :around #'term-sessions-org-babel-shell)
-  (advice-add 'org-babel-sh-evaluate :around #'term-sessions-org-babel-sh))
+(advice-add 'org-babel-execute-src-block
+            :around #'term-sessions-org-babel-execute-src-block)
+(advice-add 'org-babel-execute:shell :around #'term-sessions-org-babel-shell)
+(advice-add 'org-babel-sh-evaluate :around #'term-sessions-org-babel-sh)
 
 (provide 'term-sessions-org)
 ;;; term-sessions-org.el ends here

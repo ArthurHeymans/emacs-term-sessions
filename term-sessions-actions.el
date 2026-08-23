@@ -491,13 +491,15 @@
                       (term-sessions--entry-name entry) entry)))
       `(term-session . ,candidate))))
 
-(with-eval-after-load 'embark
-  (defvar embark-expression-map)
-  (defvar embark-file-map)
-  (defvar embark-identifier-map)
-  (defvar embark-keymap-alist)
-  (defvar embark-region-map)
-  (defvar embark-target-finders)
+(defvar embark-expression-map)
+(defvar embark-file-map)
+(defvar embark-identifier-map)
+(defvar embark-keymap-alist)
+(defvar embark-region-map)
+(defvar embark-target-finders)
+
+(defun term-sessions-actions--embark-setup ()
+  "Wire term-sessions actions into Embark."
   (define-key embark-region-map (kbd "S") #'term-sessions-action-send-text-to-session)
   (define-key embark-region-map (kbd "C") #'term-sessions-action-send-command-text-to-session)
   (define-key embark-file-map (kbd "S") #'term-sessions-action-send-file-path-to-session)
@@ -509,6 +511,9 @@
   (add-to-list 'embark-target-finders #'term-sessions-action-org-link-target)
   (add-to-list 'embark-target-finders #'term-sessions-action-list-row-target 'append)
   (add-to-list 'embark-target-finders #'term-sessions-action-current-buffer-target 'append))
+
+(with-eval-after-load 'embark
+  (term-sessions-actions--embark-setup))
 
 (provide 'term-sessions-actions)
 ;;; term-sessions-actions.el ends here

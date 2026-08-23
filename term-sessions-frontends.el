@@ -210,7 +210,10 @@ can be handled by TRAMP or tramp-rpc process file handlers."
                 (nconc
                  (list
                   (format "TERM=%s" term-term-name)
-                  (format "TERMINFO=%s" (term-generate-db-directory))
+                  ;; Emacs 30 generates a private terminfo db; older
+                  ;; versions don't provide `term-generate-db-directory'.
+                  (when (fboundp 'term-generate-db-directory)
+                    (format "TERMINFO=%s" (term-generate-db-directory)))
                   (format term-termcap-format "TERMCAP="
                           term-term-name term-height term-width)
                   (format "INSIDE_EMACS=%s,term:%s"
