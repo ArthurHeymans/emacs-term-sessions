@@ -46,9 +46,11 @@ This is intentionally pluggable because ghostel APIs are still evolving."
   :type '(choice (const :tag "Disabled" nil) function))
 
 (defcustom term-sessions-default-command nil
-  "Command to run in zmx session (i.e. /bin/bash). If nil, the zmx default $SHELL is used."
+  "Command to run in a zmx session (e.g. \"/bin/bash\").
+If nil, the user's login shell is used."
   :group 'term-sessions
-  :type 'string)
+  :type '(choice (const :tag "Use login shell" nil)
+                 string))
 
 (defun term-sessions--ghostel-live-process-p ()
   "Return non-nil when the current Ghostel buffer has a live process.
@@ -208,7 +210,10 @@ can be handled by TRAMP or tramp-rpc process file handlers."
                 (nconc
                  (list
                   (format "TERM=%s" term-term-name)
-                  (format "TERMINFO=%s" (term-generate-db-directory))
+                  ;; Emacs 30 generates a private terminfo db; older
+                  ;; versions don't provide `term-generate-db-directory'.
+                  (when (fboundp 'term-generate-db-directory)
+                    (format "TERMINFO=%s" (term-generate-db-directory)))
                   (format term-termcap-format "TERMCAP="
                           term-term-name term-height term-width)
                   (format "INSIDE_EMACS=%s,term:%s"
@@ -355,7 +360,7 @@ session to already exist according to zmx in the entry/current directory."
                                 (term-sessions--entry-cwd-directory entry)
                               default-directory))
          (name (term-sessions--entry-name name))
-	 (command (or command term-sessions-default-command)))
+         (command (or command term-sessions-default-command)))
     (or (term-sessions--pop-existing-session-buffer
          name default-directory term-sessions-backend)
         (progn
@@ -382,7 +387,8 @@ session to already exist according to zmx in the entry/current directory."
   "Open persistent zmx session NAME, creating it when missing.
 NAME may also be a session entry plist with a `:directory'.  With prefix
 argument, prompt for COMMAND to run when the session is created.  Without
-COMMAND, zmx starts a login shell for new sessions."
+COMMAND, zmx uses `term-sessions-default-command' when non-nil, and starts a
+login shell otherwise."
   (interactive
    (list (term-sessions--read-session-entry "Open session: " nil)
          (when current-prefix-arg

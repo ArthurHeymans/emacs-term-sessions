@@ -63,6 +63,12 @@
                (lambda (&rest args)
                  (should (equal args '("list")))
                  "  name=dev\tpid=123\tclients=2\tcreated=1781290004\tstart_dir=/repo\tcmd=/bin/bash -l\n"))
+              ;; Avoid the real log-dir probe, which calls
+              ;; `term-sessions--zmx' with ("version") before the "list"
+              ;; call; older ERT counts the resulting `should' failure even
+              ;; though `term-sessions--zmx-log-dir' catches it.
+              ((symbol-function 'term-sessions--zmx-log-dir)
+               (lambda () nil))
               ((symbol-function 'term-sessions--zmx-log-mtime)
                (lambda (_name &optional _log-dir)
                  0)))
@@ -105,6 +111,9 @@
              (lambda (&rest args)
                (should (equal args '("list")))
                "name=dev\tpid=123\tclients=0\tstart_dir=/repo\tcmd=/bin/bash -l\n"))
+            ;; See term-sessions-test-zmx-list-sessions-parses-details.
+            ((symbol-function 'term-sessions--zmx-log-dir)
+             (lambda () nil))
             ((symbol-function 'term-sessions--zmx-log-mtime)
              (lambda (_name &optional _log-dir) nil))
             ((symbol-function 'term-sessions--zmx-process-cwd)
