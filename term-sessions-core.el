@@ -27,6 +27,7 @@ Currently only `zmx' is implemented."
   :type '(choice (const :tag "vterm" vterm)
                  (const :tag "eat" eat)
                  (const :tag "ghostel" ghostel)
+                 (const :tag "ebb" ebb)
                  (const :tag "term" term)
                  (const :tag "shell" shell)))
 

@@ -2,7 +2,7 @@
 
 Persistent terminal sessions for Emacs, powered by an external terminal-session backend.
 
-=term-sessions.el= is for terminals that should outlive buffers, Emacs restarts, and SSH disconnects.  The current backend is [[https://github.com/neurosnap/zmx][zmx]]: Emacs shells out to =zmx= for control operations and opens attaches through a selected terminal frontend such as =vterm=, =eat=, =ghostel=, =term=, or =shell=.
+=term-sessions.el= is for terminals that should outlive buffers, Emacs restarts, and SSH disconnects.  The current backend is [[https://github.com/neurosnap/zmx][zmx]]: Emacs shells out to =zmx= for control operations and opens attaches through a selected terminal frontend such as =vterm=, =eat=, =ghostel=, =ebb=, =term=, or =shell=.
 
 The design goal is simple: Emacs is the client, not the owner.  Session lifecycle, PTYs, history, and attach state belong to the backend.
 
@@ -46,7 +46,7 @@ Implemented pieces include:
 
 - open/list/kill commands
 - history, send, run, and wait commands
-- local frontend adapters for =vterm=, =eat=, =ghostel=, =term=, and =shell=
+- local frontend adapters for =vterm=, =eat=, =ghostel=, =ebb=, =term=, and =shell=
 - TRAMP-aware noninteractive/control operations
 - Org links for storing and reopening session specs
 - Org Babel shell blocks via =:term-session NAME=
@@ -75,7 +75,7 @@ Choose a terminal frontend:
 
 #+begin_src emacs-lisp
 (setq term-sessions-preferred-frontend 'term) ; built in
-;; Other supported values include 'vterm, 'eat, 'ghostel, and 'shell.
+;; Other supported values include 'vterm, 'eat, 'ghostel, 'ebb, and 'shell.
 #+end_src
 
 Then run:
@@ -110,7 +110,7 @@ Interactive attach is controlled by =term-sessions-attach-transport=:
 (setq term-sessions-attach-transport 'tramp-process) ; force TRAMP process attach
 #+end_src
 
-Local directories attach locally.  For remote directories, =term=, =eat=, =ghostel=, =vterm=, and =shell= use TRAMP process attaches, including =/rpc:= when tramp-rpc provides that method and TRAMP multi-hop paths.
+Local directories attach locally.  For remote directories, =term=, =eat=, =ghostel=, =ebb=, =vterm=, and =shell= use TRAMP process attaches, including =/rpc:= when tramp-rpc provides that method and TRAMP multi-hop paths.
 
 =term-sessions-list= can include already-open TRAMP remotes.  If a remote query fails, the list skips that remote for =term-sessions-list-failed-remote-retry-delay= seconds to avoid repeated TRAMP reconnect prompts on every refresh.  Press =R= in the list buffer, or run =M-x term-sessions-list-clear-failed-remotes=, to force retry after fixing the connection.
 
@@ -153,7 +153,7 @@ usable =:session= name is present, =:term-session t= uses
 
 * Frontends
 
-=vterm=, =eat=, =ghostel=, =term=, and =shell= are implemented for local interactive attach.  For remote directories they use TRAMP/tramp-rpc process attaches.
+=vterm=, =eat=, =ghostel=, =ebb=, =term=, and =shell= are implemented for local interactive attach.  For remote directories they use TRAMP/tramp-rpc process attaches.
 
 =ghostel= uses its native TRAMP-aware =ghostel-exec= path and keeps Ghostel title/directory tracking while prefixing buffer names with the term session name.  =term-sessions-ghostel-open-function= remains customizable for users who want a different Ghostel opener.
 
