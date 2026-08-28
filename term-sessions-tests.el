@@ -847,6 +847,18 @@
                   "dev" "*term-session:dev: [ssh:host] /repo*")
                  "term-session:dev: [ssh:host] /repo")))
 
+(ert-deftest term-sessions-test-attach-shell-is-remote-safe ()
+  ;; Frontends spawn the attach shell on the host owning `default-directory',
+  ;; so a local `shell-file-name' must not be handed to a remote attach.
+  (let ((shell-file-name "/run/current-system/sw/bin/zsh"))
+    (should (equal "/run/current-system/sw/bin/zsh"
+                   (term-sessions--attach-shell "/home/user/project/")))
+    (should (equal "/bin/sh"
+                   (term-sessions--attach-shell "/ssh:user@example:/tmp/")))
+    (should (equal "/bin/sh"
+                   (term-sessions--attach-shell
+                    "/ssh:jump|ssh:user@example#2222:/tmp/")))))
+
 (ert-deftest term-sessions-test-open-term-process-initializes-stty ()
   ;; Mirror term.el: the attach must run through an stty init wrapper so
   ;; remote terminals get sane rows/columns without a pty resize ioctl.

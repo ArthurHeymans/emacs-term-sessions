@@ -27,7 +27,7 @@ requires the current TRAMP method to be `rpc'."
                  (const :tag "TRAMP process" tramp-process)
                  (const :tag "TRAMP RPC process" tramp-rpc)))
 
-(defcustom term-sessions-tramp-process-frontends '(term eat ghostel vterm shell)
+(defcustom term-sessions-tramp-process-frontends '(term eat ghostel ebb vterm shell)
   "Frontends that can attach through TRAMP process APIs.
 These frontends start the attach command while `default-directory' is remote,
 so TRAMP or tramp-rpc owns the transport."

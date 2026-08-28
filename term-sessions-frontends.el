@@ -19,6 +19,18 @@
 (declare-function ghostel-mode "ghostel" ())
 (declare-function ghostel-semi-char-mode "ghostel" ())
 (declare-function ghostel-exec "ghostel" (buffer program &optional args))
+(declare-function ebb-mode "ebb" ())
+(declare-function ebb-char-mode "ebb" ())
+(declare-function ebb-semi-char-mode "ebb" ())
+(declare-function ebb-emacs-mode "ebb" ())
+(declare-function ebb--handle-event "ebb" (type &rest args))
+(declare-function ebb-io-create-terminal "ebb-io" (buffer event-handler &optional begin end))
+(declare-function ebb-io-start "ebb-io" (io shell-command buffer &optional extra-env))
+(declare-function ebb-io-handle-resize "ebb-io" (io width height))
+(declare-function ebb-io-stop "ebb-io" (io))
+(declare-function ebb-io-screen "ebb-io" (io))
+(declare-function ebb-io-render "ebb-io" (io))
+(declare-function ebb-io-parser "ebb-io" (io))
 (declare-function term-emulate-terminal "term" (proc string))
 (declare-function term-generate-db-directory "term" ())
 (declare-function term-sentinel "term" (proc msg))
@@ -37,6 +49,13 @@
 (defvar ghostel--process)
 (defvar ghostel-buffer-name-function)
 (defvar ghostel-set-title-function)
+(defvar ebb-default-input-mode)
+(defvar ebb-buffer-name-function)
+(defvar ebb--io)
+(defvar ebb--screen)
+(defvar ebb--render)
+(defvar ebb--parser)
+(defvar ebb--session-id)
 
 (defcustom term-sessions-ghostel-open-function #'term-sessions--ghostel-open-command
   "Function used to open an attach command with ghostel.
@@ -136,6 +155,13 @@ This isolates Ghostel's private process variable from the frontend adapter."
                     name fallback-name title)
                    t)))))
 
+(defun term-sessions--attach-shell (directory)
+  "Return the shell program to run an attach command in DIRECTORY.
+`shell-file-name' names a binary on the local host.  When DIRECTORY is
+remote, frontends spawn the process through TRAMP, so that path need not
+exist on the remote host; fall back to the portable /bin/sh there."
+  (if (file-remote-p directory) "/bin/sh" shell-file-name))
+
 (defun term-sessions--open-vterm (name command buffer-name &optional spec)
   "Open COMMAND in vterm BUFFER-NAME for session NAME."
   (unless (require 'vterm nil t)
@@ -145,7 +171,7 @@ This isolates Ghostel's private process variable from the frontend adapter."
          ;; Use a real shell command there so compound attach setup fragments
          ;; (for example setting SHELL from passwd) are interpreted correctly.
          (vterm-command (term-sessions--command-string
-                         (if remote-method "/bin/sh" shell-file-name)
+                         (term-sessions--attach-shell default-directory)
                          (list shell-command-switch command)))
          (vterm-shell vterm-command)
          (vterm-buffer-name buffer-name)
@@ -171,6 +197,45 @@ This isolates Ghostel's private process variable from the frontend adapter."
       (with-current-buffer buffer
         (eat-semi-char-mode)
         (term-sessions--mark-buffer name spec t)))))
+
+(defun term-sessions--open-ebb (name command buffer-name &optional spec)
+  "Open COMMAND in an ebb terminal BUFFER-NAME for session NAME."
+  (unless (require 'ebb nil t)
+    (user-error "Ebb is not available"))
+  (let* ((directory default-directory)
+         ;; Ebb spawns through TRAMP when DIRECTORY is remote, so the shell
+         ;; has to be a path the remote host resolves.
+         (ebb-shell (term-sessions--attach-shell directory))
+         ;; Ebb renames its managed buffers from OSC titles; a term-session
+         ;; buffer owns its stable name instead.
+         (ebb-buffer-name-function nil)
+         (buffer (get-buffer-create buffer-name)))
+    (with-current-buffer buffer
+      (setq default-directory directory)
+      (when-let ((existing ebb--io))
+        (ignore-errors (ebb-io-stop existing)))
+      (let ((inhibit-read-only t))
+        (erase-buffer))
+      (ebb-mode)
+      (setq-local ebb--session-id buffer-name
+                  ebb--io (ebb-io-create-terminal buffer #'ebb--handle-event)
+                  ebb--screen (ebb-io-screen ebb--io)
+                  ebb--render (ebb-io-render ebb--io)
+                  ebb--parser (ebb-io-parser ebb--io))
+      (ebb-io-start ebb--io (list ebb-shell shell-command-switch command)
+                    buffer)
+      (pcase ebb-default-input-mode
+        ('char (ebb-char-mode))
+        ('emacs (ebb-emacs-mode))
+        (_ (ebb-semi-char-mode))))
+    (pop-to-buffer buffer)
+    (when-let ((win (get-buffer-window buffer)))
+      (ebb-io-handle-resize (buffer-local-value 'ebb--io buffer)
+                            (window-max-chars-per-line win)
+                            (window-body-height win)))
+    (with-current-buffer buffer
+      (term-sessions--mark-buffer name spec t))
+    buffer))
 
 (defun term-sessions--terminal-buffer-base-name (name buffer-name)
   "Return a terminal base name for NAME from BUFFER-NAME.
@@ -262,6 +327,7 @@ COMMAND is the optional zmx creation command for missing sessions."
     (let ((attach-command (term-sessions--attach-command name command t)))
       (pcase frontend
         ('eat (term-sessions--open-eat name attach-command buffer-name spec))
+        ('ebb (term-sessions--open-ebb name attach-command buffer-name spec))
         ('term (term-sessions--open-term-process name "/bin/sh" (list "-lc" attach-command)
                                                  buffer-name spec))
         ('ghostel (term-sessions--open-ghostel name attach-command buffer-name spec))
@@ -281,6 +347,7 @@ COMMAND is the optional zmx creation command for missing sessions."
   (pcase frontend
     ('vterm (term-sessions--open-vterm name command buffer-name spec))
     ('eat (term-sessions--open-eat name command buffer-name spec))
+    ('ebb (term-sessions--open-ebb name command buffer-name spec))
     ('ghostel (term-sessions--open-ghostel name command buffer-name spec))
     ('term (term-sessions--open-term name command buffer-name spec))
     ('shell (term-sessions--open-shell name command buffer-name spec))
@@ -351,7 +418,7 @@ session to already exist according to zmx in the entry/current directory."
   (interactive
    (list (term-sessions--read-existing-session-entry "Open session: ")
          nil
-         (intern (completing-read "Frontend: " '("vterm" "eat" "ghostel" "term" "shell")
+         (intern (completing-read "Frontend: " '("vterm" "eat" "ghostel" "ebb" "term" "shell")
                                   nil t nil nil
                                   (symbol-name term-sessions-preferred-frontend)))
          nil))
