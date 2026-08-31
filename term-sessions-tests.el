@@ -676,9 +676,32 @@
       (should (equal seen-directory "/ssh:host:/repo/"))
       (should (equal (car opened) "dev")))))
 
-(ert-deftest term-sessions-test-read-existing-session-entry-includes-open-remotes ()
+(ert-deftest term-sessions-test-read-existing-session-entry-selects-local-session ()
   (clrhash term-sessions--completion-entry-table)
   (let (prompt collection required)
+    (cl-letf (((symbol-function 'term-sessions-list--session-rows)
+               (lambda ()
+                 (list (list (list :name "dev"
+                                   :directory "/tmp/"
+                                   :where "local"
+                                   :cwd "/tmp/project")
+                             []))))
+              ((symbol-function 'completing-read)
+               (lambda (p c _predicate require-match &rest _args)
+                 (setq prompt p collection c required require-match)
+                 "dev @ local /tmp/project")))
+      (let ((entry (term-sessions-read-existing-session-entry "Send to session: ")))
+        (should (equal prompt "Send to session: "))
+        (should required)
+        (should (equal (all-completions "dev" collection)
+                       '("dev @ local /tmp/project")))
+        (should (equal (plist-get entry :name) "dev"))
+        (should (equal (plist-get entry :directory) "/tmp/"))))))
+
+(ert-deftest term-sessions-test-read-existing-session-entry-selects-open-remote ()
+  (clrhash term-sessions--completion-entry-table)
+  (let ((default-directory "/tmp/current/")
+        prompt collection required)
     (cl-letf (((symbol-function 'term-sessions-list--session-rows)
                (lambda ()
                  (list (list (list :name "local"
@@ -695,13 +718,43 @@
                (lambda (p c _predicate require-match &rest _args)
                  (setq prompt p collection c required require-match)
                  "remote @ ssh:host /repo")))
-      (let ((entry (term-sessions--read-existing-session-entry "Open session: ")))
+      (let ((entry (term-sessions-read-existing-session-entry "Open session: ")))
         (should (equal prompt "Open session: "))
         (should required)
         (should (equal (all-completions "remote" collection)
                        '("remote @ ssh:host /repo")))
         (should (equal (plist-get entry :name) "remote"))
         (should (equal (plist-get entry :directory) "/ssh:host:/"))))))
+
+(ert-deftest term-sessions-test-read-existing-session-entry-requires-match ()
+  (clrhash term-sessions--completion-entry-table)
+  (let (required)
+    (cl-letf (((symbol-function 'term-sessions-list--session-rows)
+               (lambda ()
+                 (list (list (list :name "dev"
+                                   :directory "/tmp/"
+                                   :where "local"
+                                   :cwd "/tmp/project")
+                             []))))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt _collection _predicate require-match &rest _args)
+                 (setq required require-match)
+                 "missing")))
+      (should-error (term-sessions-read-existing-session-entry) :type 'user-error)
+      (should required))))
+
+(ert-deftest term-sessions-test-read-existing-session-entry-preserves-cancellation ()
+  (let (result)
+    (cl-letf (((symbol-function 'term-sessions-list--session-rows)
+               (lambda () nil))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 (signal 'quit nil))))
+      (setq result
+            (condition-case nil
+                (term-sessions-read-existing-session-entry)
+              (quit 'cancelled))))
+    (should (eq result 'cancelled))))
 
 (ert-deftest term-sessions-test-read-session-entry-allows-new-name ()
   (clrhash term-sessions--completion-entry-table)
@@ -1453,7 +1506,7 @@
 
 (ert-deftest term-sessions-test-action-send-target-actions-prompt-for-session ()
   (let (calls)
-    (cl-letf (((symbol-function 'term-sessions--read-existing-session-entry)
+    (cl-letf (((symbol-function 'term-sessions-read-existing-session-entry)
                (lambda (_prompt)
                  (list :name "dev" :directory "/tmp/")))
               ((symbol-function 'term-sessions-send)

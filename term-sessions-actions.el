@@ -87,16 +87,9 @@
     (term-sessions--org-link-for-spec
      (term-sessions-spec-current name nil term-sessions-preferred-frontend))))
 
-(defun term-sessions-action--read-target-session-entry (prompt)
-  "Read an existing session entry for target action using PROMPT."
-  (if (fboundp 'term-sessions--read-existing-session-entry)
-      (term-sessions--read-existing-session-entry prompt)
-    (list :name (term-sessions--read-name prompt t)
-          :directory default-directory)))
-
 (defun term-sessions-action--with-target-session (prompt function)
   "Read a target session with PROMPT and call FUNCTION with its entry."
-  (let* ((entry (term-sessions-action--read-target-session-entry prompt))
+  (let* ((entry (term-sessions-read-existing-session-entry prompt))
          (default-directory (term-sessions--entry-directory entry)))
     (funcall function entry)))
 

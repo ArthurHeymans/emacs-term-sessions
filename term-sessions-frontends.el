@@ -369,38 +369,41 @@ COMMAND is the optional zmx creation command for missing sessions."
 When REQUIRE-EXISTING is non-nil, require the selected session to exist.
 Otherwise, a non-matching name creates a new entry in `default-directory', like
 `find-file' does for files."
-  (if (fboundp 'term-sessions-list--session-rows)
-      (progn
-        (clrhash term-sessions--completion-entry-table)
-        (let* ((entries (mapcar #'car (term-sessions-list--session-rows)))
-               (candidates
-                (mapcar (lambda (entry)
-                          (term-sessions--register-completion-entry
-                           (format "%s @ %s %s"
-                                   (plist-get entry :name)
-                                   (plist-get entry :where)
-                                   (abbreviate-file-name
-                                    (or (plist-get entry :cwd) "")))
-                           entry))
-                        entries))
-               (table (lambda (string predicate action)
-                        (if (eq action 'metadata)
-                            `(metadata
-                              (category . term-session)
-                              (annotation-function . term-sessions--completion-annotate))
-                          (complete-with-action action candidates string predicate))))
-               (selected (completing-read (or prompt "Session: ") table nil require-existing
-                                          nil 'term-sessions-name-history)))
-          (or (term-sessions--completion-entry selected)
-              (and (not require-existing)
-                   (list :name (substring-no-properties selected)
-                         :directory default-directory))
-              (user-error "No term session selected"))))
-    (list :name (term-sessions--read-name prompt require-existing)
-          :directory default-directory)))
+  ;; The list module depends on this frontend module, so load it at the
+  ;; selection boundary after `term-sessions-frontends' has been provided.
+  (require 'term-sessions-list)
+  (clrhash term-sessions--completion-entry-table)
+  (let* ((entries (mapcar #'car (term-sessions-list--session-rows)))
+         (candidates
+          (mapcar (lambda (entry)
+                    (term-sessions--register-completion-entry
+                     (format "%s @ %s %s"
+                             (plist-get entry :name)
+                             (plist-get entry :where)
+                             (abbreviate-file-name
+                              (or (plist-get entry :cwd) "")))
+                     entry))
+                  entries))
+         (table (lambda (string predicate action)
+                  (if (eq action 'metadata)
+                      `(metadata
+                        (category . term-session)
+                        (annotation-function . term-sessions--completion-annotate))
+                    (complete-with-action action candidates string predicate))))
+         (selected (completing-read (or prompt "Session: ") table nil require-existing
+                                    nil 'term-sessions-name-history))
+         (entry (gethash (substring-no-properties selected)
+                         term-sessions--completion-entry-table)))
+    (or entry
+        (and (not require-existing)
+             (list :name (substring-no-properties selected)
+                   :directory default-directory))
+        (user-error "No term session selected"))))
 
-(defun term-sessions--read-existing-session-entry (&optional prompt)
-  "Read an existing session entry with PROMPT, including open TRAMP remotes."
+;;;###autoload
+(defun term-sessions-read-existing-session-entry (&optional prompt)
+  "Read an existing session entry with PROMPT, including open TRAMP remotes.
+Return the selected entry with its `:name' and location-aware `:directory'."
   (term-sessions--read-session-entry prompt t))
 
 (defun term-sessions--pop-existing-session-buffer (name directory &optional backend)
@@ -416,7 +419,7 @@ Return the buffer when one was found, otherwise nil."
 NAME may also be a session entry plist.  When ALLOW-CREATE is nil, require the
 session to already exist according to zmx in the entry/current directory."
   (interactive
-   (list (term-sessions--read-existing-session-entry "Open session: ")
+   (list (term-sessions-read-existing-session-entry "Open session: ")
          nil
          (intern (completing-read "Frontend: " '("vterm" "eat" "ghostel" "ebb" "term" "shell")
                                   nil t nil nil

@@ -97,6 +97,11 @@ Additional commands:
 
 =term-sessions-open= behaves like =find-file=: choose an existing completion to reopen it, or type a new name to create and attach to it.
 
+Lisp callers that need to select an existing session without opening a frontend
+can call =term-sessions-read-existing-session-entry=.  It requires a completion
+match and returns the selected entry's name and location-aware directory,
+including already-known TRAMP sessions.
+
 * Remote and TRAMP behavior
 
 For TRAMP paths, install/configure =zmx= on the remote host or set =term-sessions-zmx-program= connection-locally.
