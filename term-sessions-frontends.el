@@ -181,7 +181,10 @@ exist on the remote host; fall back to the portable /bin/sh there."
                                          vterm-tramp-shells)
                                vterm-tramp-shells)))
     (vterm buffer-name)
-    (term-sessions--mark-buffer name spec t)))
+    (let ((buffer (current-buffer)))
+      (with-current-buffer buffer
+        (term-sessions--mark-buffer name spec t))
+      buffer)))
 
 (defun term-sessions--open-eat (name command buffer-name &optional spec)
   "Open COMMAND in eat BUFFER-NAME for session NAME."
@@ -196,7 +199,8 @@ exist on the remote host; fall back to the portable /bin/sh there."
       (pop-to-buffer buffer)
       (with-current-buffer buffer
         (eat-semi-char-mode)
-        (term-sessions--mark-buffer name spec t)))))
+        (term-sessions--mark-buffer name spec t))
+      buffer)))
 
 (defun term-sessions--open-ebb (name command buffer-name &optional spec)
   "Open COMMAND in an ebb terminal BUFFER-NAME for session NAME."
@@ -254,7 +258,8 @@ surrounding stars, so BUFFER-NAME is stripped when present."
     (pop-to-buffer buffer)
     (term-mode)
     (term-char-mode)
-    (term-sessions--mark-buffer name spec t)))
+    (term-sessions--mark-buffer name spec t)
+    buffer))
 
 (defun term-sessions--open-term-process (name program args buffer-name &optional spec)
   "Open PROGRAM with ARGS in a built-in term buffer for session NAME.
@@ -340,7 +345,8 @@ COMMAND is the optional zmx creation command for missing sessions."
   (let ((buffer (shell buffer-name)))
     (with-current-buffer buffer
       (comint-send-string buffer (concat command "\n"))
-      (term-sessions--mark-buffer name spec t))))
+      (term-sessions--mark-buffer name spec t))
+    buffer))
 
 (defun term-sessions--open-command-frontend (name command frontend buffer-name &optional spec)
   "Open COMMAND for session NAME using command-string FRONTEND."
@@ -362,7 +368,8 @@ COMMAND is the optional zmx creation command for missing sessions."
     (with-current-buffer buffer
       (term-sessions--mark-buffer name spec t)
       (term-sessions--install-ghostel-title-tracking name buffer-name)
-      (rename-buffer buffer-name t))))
+      (rename-buffer buffer-name t))
+    buffer))
 
 (defun term-sessions--read-session-entry (&optional prompt require-existing)
   "Read a session entry with PROMPT, including already-open TRAMP remotes.
@@ -373,7 +380,8 @@ Otherwise, a non-matching name creates a new entry in `default-directory', like
   ;; selection boundary after `term-sessions-frontends' has been provided.
   (require 'term-sessions-list)
   (clrhash term-sessions--completion-entry-table)
-  (let* ((entries (mapcar #'car (term-sessions-list--session-rows)))
+  (let* ((directory default-directory)
+         (entries (mapcar #'car (term-sessions-list--session-rows)))
          (candidates
           (mapcar (lambda (entry)
                     (term-sessions--register-completion-entry
@@ -394,16 +402,30 @@ Otherwise, a non-matching name creates a new entry in `default-directory', like
                                     nil 'term-sessions-name-history))
          (entry (gethash (substring-no-properties selected)
                          term-sessions--completion-entry-table)))
-    (or entry
-        (and (not require-existing)
-             (list :name (substring-no-properties selected)
-                   :directory default-directory))
-        (user-error "No term session selected"))))
+    (cond
+     (entry
+      (plist-put (copy-tree entry) :existing t))
+     ((or require-existing (string-empty-p selected))
+      (user-error "No term session selected"))
+     (t
+      (list :name (substring-no-properties selected)
+            :directory directory
+            :existing nil)))))
+
+;;;###autoload
+(defun term-sessions-read-session-entry (&optional prompt)
+  "Read an existing session or a new session name with PROMPT.
+Existing candidates return a fresh location-aware entry with all of their
+metadata and `:existing' set to t.  A new nonempty name returns `:name',
+the directory captured before completion, and `:existing' set to nil.  An
+empty unmatched name signals `user-error'; completion quit propagates."
+  (term-sessions--read-session-entry prompt nil))
 
 ;;;###autoload
 (defun term-sessions-read-existing-session-entry (&optional prompt)
   "Read an existing session entry with PROMPT, including open TRAMP remotes.
-Return the selected entry with its `:name' and location-aware `:directory'."
+Return a fresh location-aware entry with all selected metadata and `:existing'
+set to t.  Nonmatching input is rejected."
   (term-sessions--read-session-entry prompt t))
 
 (defun term-sessions--pop-existing-session-buffer (name directory &optional backend)
@@ -417,7 +439,8 @@ Return the buffer when one was found, otherwise nil."
 (defun term-sessions-open-with-frontend (name &optional command frontend allow-create)
   "Open zmx session NAME with optional creation COMMAND in FRONTEND.
 NAME may also be a session entry plist.  When ALLOW-CREATE is nil, require the
-session to already exist according to zmx in the entry/current directory."
+session to already exist according to zmx in the entry/current directory.
+Return the exact frontend buffer that was opened or reused."
   (interactive
    (list (term-sessions-read-existing-session-entry "Open session: ")
          nil
@@ -458,9 +481,10 @@ session to already exist according to zmx in the entry/current directory."
 NAME may also be a session entry plist with a `:directory'.  With prefix
 argument, prompt for COMMAND to run when the session is created.  Without
 COMMAND, zmx uses `term-sessions-default-command' when non-nil, and starts a
-login shell otherwise."
+login shell otherwise.  Return the exact frontend buffer that was opened or
+reused."
   (interactive
-   (list (term-sessions--read-session-entry "Open session: " nil)
+   (list (term-sessions-read-session-entry "Open session: ")
          (when current-prefix-arg
            (read-string "Command for new session: " nil 'term-sessions-command-history))))
   (term-sessions-open-with-frontend name command term-sessions-preferred-frontend t))

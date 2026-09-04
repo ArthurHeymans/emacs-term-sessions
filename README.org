@@ -95,12 +95,22 @@ Additional commands:
 - =M-x term-sessions-wait-async=
 - =M-x term-sessions-store-org-link=
 
-=term-sessions-open= behaves like =find-file=: choose an existing completion to reopen it, or type a new name to create and attach to it.
+=term-sessions-open= behaves like =find-file=: choose an existing completion to reopen it, or type a new name to create and attach to it.  Both
+=term-sessions-open= and =term-sessions-open-with-frontend= return the exact
+frontend buffer they opened or reused.
 
-Lisp callers that need to select an existing session without opening a frontend
-can call =term-sessions-read-existing-session-entry=.  It requires a completion
-match and returns the selected entry's name and location-aware directory,
-including already-known TRAMP sessions.
+Lisp callers can use =term-sessions-read-session-entry= for the same
+location-aware existing-or-create selection without opening a frontend.  An
+existing local or already-known TRAMP candidate returns a fresh entry that
+preserves its name, backend directory, cwd, and other list metadata, with
+=:existing= set to =t=.  A nonempty unmatched name returns
+=(:name NAME :directory DIRECTORY :existing nil)=, where DIRECTORY is the
+caller's directory captured before completion.  Empty unmatched input signals a
+=user-error= and completion quit propagates.
+
+Call =term-sessions-read-existing-session-entry= when a caller requires a
+completion match.  It returns the same fresh, location-aware metadata for the
+selected local or known remote session, with =:existing= set to =t=.
 
 * Remote and TRAMP behavior
 
