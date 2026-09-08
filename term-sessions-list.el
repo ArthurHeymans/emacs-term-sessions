@@ -19,6 +19,8 @@
 (require 'term-sessions-frontends)
 (require 'term-sessions-org)
 
+(defvar org-stored-links)
+
 (defcustom term-sessions-list-include-open-remotes t
   "When non-nil, `term-sessions-list' includes all open TRAMP remotes.
 The list always includes the local zmx server.  Open remotes are discovered via
@@ -62,6 +64,11 @@ connection does not keep distracting later list refreshes."
 
 (defvar-local term-sessions-list--refresh-generation 0
   "Monotonic refresh id used to ignore stale asynchronous remote queries.")
+
+(defvar term-sessions-list--generation-counter 0
+  "Global monotonic source for `term-sessions-list--refresh-generation'.
+Kept outside buffer-local state so re-initializing the list mode cannot hand
+out an id that is still tagged on an in-flight remote query.")
 
 (defvar term-sessions-list-mode-map
   (let ((map (make-sparse-keymap))
@@ -366,15 +373,19 @@ start or reconnect providers during list refresh."
 (defun term-sessions-list--skip-unavailable-async-remote-p (directory)
   "Record and return non-nil when DIRECTORY should not be queried async.
 Asynchronous list refreshes are intentionally conservative: a remote from
-`tramp-list-connections' without a live connection process would make TRAMP
-reconnect in the UI path, which is exactly what we are trying to avoid."
-  (when (memq (term-sessions-list--remote-connection-state directory)
-              '(dead absent))
-    (term-sessions-list--record-remote-failure
-     directory "TRAMP connection process is not live")
-    (message "term-sessions: skipping offline TRAMP remote %s (R retries)"
-             directory)
-    t))
+`tramp-list-connections' whose connection process died would make TRAMP
+reconnect in the UI path, which is exactly what we are trying to avoid.
+A remote with no connection process at all is still queried for methods such
+as `rpc' whose connection is managed without a per-connection process."
+  (let ((state (term-sessions-list--remote-connection-state directory)))
+    (when (or (eq state 'dead)
+              (and (eq state 'absent)
+                   (not (equal (file-remote-p directory 'method) "rpc"))))
+      (term-sessions-list--record-remote-failure
+       directory "TRAMP connection process is not live")
+      (message "term-sessions: skipping offline TRAMP remote %s (R retries)"
+               directory)
+      t)))
 
 (defun term-sessions-list--clear-remote-failure (directory)
   "Forget any cached failure for remote DIRECTORY."
@@ -532,9 +543,15 @@ GENERATION must match the buffer's current refresh generation."
                   (term-sessions-list--clear-remote-failure directory)
                   (term-sessions-list--remote-query-install
                    list-buffer generation directory
-                   (term-sessions-list--rows-for-sessions
-                    (term-sessions-list--parse-zmx-list-output output)
-                    directory)))
+                   ;; Remote rows are enriched here, after the background
+                   ;; query has succeeded, so the list columns match local
+                   ;; rows.  Synchronous completion paths stay unenriched to
+                   ;; remain bounded on a wedged connection.
+                   (let ((default-directory directory))
+                     (term-sessions-list--rows-for-sessions
+                      (mapcar #'term-sessions--zmx-enrich-session-process-info
+                              (term-sessions-list--parse-zmx-list-output output))
+                      directory))))
               (let ((reason (if timeout-p
                                 (format "timed out after %ss"
                                         term-sessions-list-remote-query-timeout)
@@ -683,7 +700,9 @@ cannot block completion and consult UIs indefinitely.  Return rows or nil."
                          output-buffer term-sessions-zmx-program "list")))
                 (while (and (process-live-p process)
                             (time-less-p (current-time) deadline))
-                  (accept-process-output process 0.2 nil 0))
+                  ;; JUST-THIS-ONE = t keeps timers running while we wait, so a
+                  ;; wedged remote cannot freeze unrelated Emacs timers.
+                  (accept-process-output process 0.2 nil t))
                 (cond
                  ((and process (process-live-p process))
                   (delete-process process)
@@ -752,7 +771,8 @@ connection.  A nil timeout keeps the previous unbounded behavior."
   "Refresh `term-sessions-list-mode' rows.
 Local sessions are queried synchronously.  Remote TRAMP sessions are queried in
 the background so stale or offline providers do not block the list UI."
-  (cl-incf term-sessions-list--refresh-generation)
+  (setq term-sessions-list--refresh-generation
+        (cl-incf term-sessions-list--generation-counter))
   (term-sessions-list--cancel-pending-remote-queries)
   (let* ((generation term-sessions-list--refresh-generation)
          (session-directories (term-sessions-list--session-buffer-directories))
@@ -785,6 +805,10 @@ the background so stale or offline providers do not block the list UI."
   (interactive)
   (let ((buffer (get-buffer-create "*term-sessions*")))
     (with-current-buffer buffer
+      ;; Cancel any in-flight queries before `term-sessions-list-mode' runs
+      ;; `kill-all-local-variables', which would otherwise orphan them.
+      (when (derived-mode-p 'term-sessions-list-mode)
+        (term-sessions-list--cancel-pending-remote-queries))
       (setq default-directory (term-sessions-list--local-directory))
       (term-sessions-list-mode)
       (term-sessions-list--update-format)
@@ -804,10 +828,17 @@ the background so stale or offline providers do not block the list UI."
       (list (term-sessions-list--entry-at-point))))
 
 (defun term-sessions-list--map-selected (function)
-  "Call FUNCTION for each selected entry with `default-directory' bound."
+  "Call FUNCTION for each selected entry with `default-directory' bound.
+Report and continue past per-entry errors so one failure cannot abort a bulk
+operation."
   (dolist (entry (term-sessions-list--selected-entries))
     (let ((default-directory (term-sessions--entry-directory entry)))
-      (funcall function entry))))
+      (condition-case err
+          (funcall function entry)
+        (error
+         (message "term-sessions: action failed for session `%s': %s"
+                  (term-sessions--entry-name entry)
+                  (error-message-string err)))))))
 
 (defun term-sessions-list--reprint ()
   "Reprint current entries and mark selected rows."
@@ -832,7 +863,12 @@ the background so stale or offline providers do not block the list UI."
                                  (plist-get (car entries) :name))))
       (dolist (entry entries)
         (let ((default-directory (term-sessions--entry-directory entry)))
-          (term-sessions--zmx "kill" (term-sessions--entry-name entry))))
+          (condition-case err
+              (term-sessions--zmx "kill" (term-sessions--entry-name entry))
+            (error
+             (message "term-sessions: cannot kill `%s': %s"
+                      (term-sessions--entry-name entry)
+                      (error-message-string err))))))
       (setq term-sessions-list--marked-entries nil)
       (revert-buffer))))
 
@@ -850,17 +886,32 @@ the background so stale or offline providers do not block the list UI."
    (lambda (entry)
      (term-sessions-send-command (term-sessions--entry-name entry) command))))
 
+(defun term-sessions-list--store-org-link-for-entry (entry)
+  "Store a `term-session' Org link for ENTRY in `org-stored-links'.
+Return the raw link target.  This is the correct way to populate the Org link
+store from a non-Org buffer; `term-sessions-store-org-link' is the Org `:store'
+callback and relies on `org-store-link' to push its result."
+  (let* ((default-directory (term-sessions--entry-cwd-directory entry))
+         (name (term-sessions--entry-name entry))
+         (spec (term-sessions-spec-current name nil term-sessions-preferred-frontend))
+         (link (term-sessions--spec-org-link spec))
+         (description (term-sessions--org-link-description name spec)))
+    (when (fboundp 'org-link-store-props)
+      (org-link-store-props :type "term-session"
+                            :link link
+                            :description description)
+      (when (boundp 'org-stored-links)
+        (push (list link description) org-stored-links)))
+    link))
+
 (defun term-sessions-list-store-org-link ()
   "Store or copy Org links for selected sessions."
   (interactive)
-  (let ((links
-         (mapcar #'term-sessions--org-link-for-entry
-                 (term-sessions-list--selected-entries))))
+  (let* ((entries (term-sessions-list--selected-entries))
+         (links (mapcar #'term-sessions--org-link-for-entry entries)))
     (kill-new (string-join links "\n"))
-    (when (= (length links) 1)
-      (let* ((entry (car (term-sessions-list--selected-entries)))
-             (default-directory (term-sessions--entry-cwd-directory entry)))
-        (term-sessions-store-org-link (term-sessions--entry-name entry))))
+    (when (= (length entries) 1)
+      (term-sessions-list--store-org-link-for-entry (car entries)))
     (message "Copied %d term-session Org link%s"
              (length links) (if (= (length links) 1) "" "s"))))
 

@@ -68,8 +68,10 @@ an Emacs buffer is opened first and the block is sent through that buffer."
 
 (defconst term-sessions--org-babel-raw-result-conflicts
   '("raw" "html" "latex" "org" "code" "pp" "drawer" "link" "graphics"
-    "verbatim")
-  "Org Babel result parameters that should not be overridden with raw links.")
+    "verbatim" "none" "silent")
+  "Org Babel result parameters that should not be overridden with raw links.
+The suppression values `none' and `silent' are included so a block that asks
+for no inserted result does not get a forced raw link.")
 
 (defun term-sessions--org-encode-alist (alist)
   "Encode ALIST as a query string."
@@ -185,27 +187,27 @@ argument otherwise."
   (let ((name (or (and (stringp name-or-interactive) name-or-interactive)
                   term-sessions-current-name)))
     (when (or name (called-interactively-p 'interactive))
-    (let* ((name (or name (term-sessions--read-name "Store link for session: " t)))
-           (backend (or term-sessions-current-backend term-sessions-backend))
-           ;; Reuse the buffer's spec only when it actually names the
-           ;; requested session; an explicit name must win over stale
-           ;; buffer metadata.
-           (current-spec term-sessions-current-spec)
-           (spec (if (and current-spec
-                          (equal (term-sessions-spec-name current-spec) name))
-                     current-spec
-                   (let ((term-sessions-backend backend))
-                     (term-sessions-spec-current
-                      name nil term-sessions-preferred-frontend))))
+      (let* ((name (or name (term-sessions--read-name "Store link for session: " t)))
+             (backend (or term-sessions-current-backend term-sessions-backend))
+             ;; Reuse the buffer's spec only when it actually names the
+             ;; requested session; an explicit name must win over stale
+             ;; buffer metadata.
+             (current-spec term-sessions-current-spec)
+             (spec (if (and current-spec
+                            (equal (term-sessions-spec-name current-spec) name))
+                       current-spec
+                     (let ((term-sessions-backend backend))
+                       (term-sessions-spec-current
+                        name nil term-sessions-preferred-frontend))))
              (link (term-sessions--spec-org-link spec))
              (description (term-sessions--org-link-description name spec)))
-        (if (fboundp 'org-link-store-props)
-            (org-link-store-props :type "term-session"
-                                  :link link
-                                  :description description)
-          (kill-new (format "[[%s][%s]]" link description)))
-        (message "Stored %s" link)
-        link))))
+          (if (fboundp 'org-link-store-props)
+              (org-link-store-props :type "term-session"
+                                    :link link
+                                    :description description)
+            (kill-new (format "[[%s][%s]]" link description)))
+          (message "Stored %s" link)
+          link))))
 
 (defun term-sessions--org-path-components (path)
   "Parse Org term-session link PATH.
@@ -329,10 +331,8 @@ This isolates Ghostel's private process storage from Babel send logic."
 
 (defun term-sessions--org-babel-live-buffer (name)
   "Return NAME's existing session buffer when it has a live process."
-  (when-let* ((buffer (term-sessions--session-buffer
-                      name default-directory term-sessions-backend)))
-    (when (term-sessions--org-babel-buffer-process buffer)
-      buffer)))
+  (term-sessions--live-session-buffer
+   name default-directory term-sessions-backend))
 
 (defun term-sessions--org-babel-process-send-string (process input)
   "Send INPUT to PROCESS using the current buffer's terminal frontend API."
@@ -509,7 +509,7 @@ offer to recreate it with the stored command and cwd."
     (unless (string= backend "zmx")
       (user-error "Unsupported term-session backend: %s" backend))
     (if (term-sessions--active-p name)
-        (if-let* ((buffer (term-sessions--session-buffer name default-directory 'zmx)))
+        (if-let* ((buffer (term-sessions--live-session-buffer name default-directory 'zmx)))
             (pop-to-buffer buffer)
           (term-sessions-open-with-frontend name nil frontend nil))
       (when (yes-or-no-p (format "Session `%s' is not active; recreate it? " name))

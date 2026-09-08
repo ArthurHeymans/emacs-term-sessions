@@ -30,7 +30,12 @@ This variable is connection-local aware."
 
 (defcustom term-sessions-zmx-enrich-process-info t
   "When non-nil, enrich `zmx list' rows with live procfs cwd/command info.
-This is best-effort and currently works on Linux hosts with `/proc' and `ps'."
+This is best-effort and currently works on Linux hosts with `/proc' and `ps'.
+The session list enriches remote rows after its background query.  The bounded
+Consult path deliberately skips remote enrichment so a wedged TRAMP connection
+cannot block the minibuffer; other synchronous paths (including the unbounded
+fallback when `term-sessions-list-remote-query-timeout' is nil) may still
+probe the remote host."
   :group 'term-sessions
   :type 'boolean)
 
@@ -168,24 +173,45 @@ The output buffer is only kept when a window is displaying it."
                      trimmed))))
            (split-string output "\n" t)))))
 
+(defconst term-sessions--zmx-list-fields
+  '(("name" . :name)
+    ("pid" . :pid)
+    ("clients" . :clients)
+    ("created" . :created)
+    ("start_dir" . :start_dir)
+    ("cmd" . :cmd)
+    ("cwd" . :cwd)
+    ("current_cmd" . :current-cmd))
+  "Known `zmx list' field names mapped to plist keys.
+Unknown fields are ignored so backend output cannot intern new symbols.")
+
+(defconst term-sessions--zmx-version-fields
+  '(("zmx" . :zmx)
+    ("ghostty_vt" . :ghostty_vt)
+    ("socket_dir" . :socket_dir)
+    ("log_dir" . :log_dir))
+  "Known `zmx version' field names mapped to plist keys.")
+
 (defun term-sessions--parse-key-value-fields (line)
-  "Parse tab-separated key=value fields from LINE into a plist."
+  "Parse tab-separated key=value fields from LINE into a plist.
+Only fields listed in `term-sessions--zmx-list-fields' are returned."
   (let (plist)
     (dolist (field (split-string (string-trim line) "\t" t))
       (when (string-match "\\`\\([^=]+\\)=\\(.*\\)\\'" field)
-        (let ((key (intern (concat ":" (match-string 1 field))))
-              (value (match-string 2 field)))
-          (setq plist (plist-put plist key value)))))
+        (when-let* ((key (cdr (assoc (match-string 1 field)
+                                     term-sessions--zmx-list-fields))))
+          (setq plist (plist-put plist key (match-string 2 field))))))
     plist))
 
 (defun term-sessions--zmx-version-info ()
-  "Return parsed `zmx version' output as a plist."
+  "Return parsed `zmx version' output as a plist.
+Only fields listed in `term-sessions--zmx-version-fields' are returned."
   (let (plist)
     (dolist (line (split-string (term-sessions--zmx "version") "\n" t))
       (when (string-match "\\`\\([^[:space:]]+\\)[[:space:]]+\\(.*\\)\\'" line)
-        (setq plist (plist-put plist
-                               (intern (concat ":" (match-string 1 line)))
-                               (match-string 2 line)))))
+        (when-let* ((key (cdr (assoc (match-string 1 line)
+                                     term-sessions--zmx-version-fields))))
+          (setq plist (plist-put plist key (match-string 2 line))))))
     plist))
 
 (defun term-sessions--remote-file-name (path)
