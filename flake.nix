@@ -27,7 +27,15 @@
             let
               base = baseNameOf path;
             in
-            base != "term-sessions-tests.el" && !lib.hasSuffix ".elc" base && base != "progress.md";
+            !(builtins.elem base [
+              "term-sessions-tests.el"
+              "progress.md"
+              "PLAN.md"
+              "persistent-terminal-session-options.md"
+              "research"
+              ".github"
+            ])
+            && !lib.hasSuffix ".elc" base;
         };
         testSrc = lib.cleanSourceWith {
           src = ./.;

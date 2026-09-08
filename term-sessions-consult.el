@@ -33,6 +33,23 @@
 (defvar term-sessions-consult--entry-table (make-hash-table :test #'equal)
   "Session entries keyed by Consult candidate string.")
 
+(defvar term-sessions-consult--entries-cache nil
+  "Session entries cached for the current Consult invocation.
+Bound to nil by `term-sessions-consult-session' so the expensive session
+enumeration runs once and is shared by every Consult source.")
+
+(defvar term-sessions-consult--entries-computed nil
+  "Non-nil once `term-sessions-consult--entries-cache' has been populated.
+A separate flag is required because a legitimate empty session list is nil.")
+
+(defvar term-sessions-consult--displayed-cache nil
+  "Cached (CANDIDATE . ENTRY) pairs for the current Consult invocation.
+Computing display strings once keeps the duplicate-suffix numbering stable
+across sources.")
+
+(defvar term-sessions-consult--displayed-computed nil
+  "Non-nil once `term-sessions-consult--displayed-cache' has been populated.")
+
 (defun term-sessions-consult--read (sources &rest args)
   "Read a term session from Consult SOURCES with ARGS.
 Consult's multi-source entry point is private; keep the direct dependency in
@@ -82,15 +99,35 @@ counter suffix so actions and annotations still resolve to the intended entry."
       (term-sessions--completion-entry candidate)))
 
 (defun term-sessions-consult--entries ()
-  "Return session entries across local and already-open TRAMP remotes."
-  (clrhash term-sessions-consult--entry-table)
-  (mapcar #'car (term-sessions-list--session-rows)))
+  "Return session entries across local and already-open TRAMP remotes.
+The enumeration is cached for the current `term-sessions-consult-session'
+invocation; calling this from several Consult sources must not re-query
+zmx or TRAMP."
+  (unless term-sessions-consult--entries-computed
+    (setq term-sessions-consult--entries-cache
+          (mapcar #'car (term-sessions-list--session-rows))
+          term-sessions-consult--entries-computed t))
+  term-sessions-consult--entries-cache)
+
+(defun term-sessions-consult--displayed ()
+  "Return cached (CANDIDATE . ENTRY) pairs for the current invocation.
+Display strings are computed and registered once so duplicate suffixes are
+stable across sources."
+  (unless term-sessions-consult--displayed-computed
+    (clrhash term-sessions-consult--entry-table)
+    (setq term-sessions-consult--displayed-cache
+          (mapcar (lambda (entry)
+                    (cons (term-sessions-consult--display entry) entry))
+                  (term-sessions-consult--entries))
+          term-sessions-consult--displayed-computed t))
+  term-sessions-consult--displayed-cache)
 
 (defun term-sessions-consult--items (&optional predicate)
   "Return Consult item strings filtered by PREDICATE."
-  (mapcar #'term-sessions-consult--display
-          (seq-filter (or predicate #'always)
-                      (term-sessions-consult--entries))))
+  (mapcar #'car
+          (seq-filter (lambda (pair)
+                        (or (null predicate) (funcall predicate (cdr pair))))
+                      (term-sessions-consult--displayed))))
 
 (defun term-sessions-consult--annotate (candidate)
   "Annotate CANDIDATE with compact client/project/update metadata.
@@ -236,12 +273,16 @@ If the selected name does not match an existing session, create and open it in
   (interactive)
   (unless (require 'consult nil t)
     (user-error "Install Consult to use `term-sessions-consult-session'"))
-  (let ((selected (term-sessions-consult--read term-sessions-consult-sources
-                                               :prompt "Term session: "
-                                               :require-match nil
-                                               :sort nil)))
-    (unless (plist-get (cdr selected) :match)
-      (term-sessions-consult--open-new (car selected)))))
+  (let ((term-sessions-consult--entries-cache nil)
+        (term-sessions-consult--entries-computed nil)
+        (term-sessions-consult--displayed-cache nil)
+        (term-sessions-consult--displayed-computed nil))
+    (let ((selected (term-sessions-consult--read term-sessions-consult-sources
+                                                 :prompt "Term session: "
+                                                 :require-match nil
+                                                 :sort nil)))
+      (unless (plist-get (cdr selected) :match)
+        (term-sessions-consult--open-new (car selected))))))
 
 (provide 'term-sessions-consult)
 ;;; term-sessions-consult.el ends here

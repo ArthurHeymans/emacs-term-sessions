@@ -192,7 +192,8 @@ exist on the remote host; fall back to the portable /bin/sh there."
          (target-buffer (get-buffer-create (format "*%s*" base-name))))
     (with-current-buffer target-buffer
       (setq default-directory directory))
-    (let ((buffer (eat-make base-name "/usr/bin/env" nil "sh" "-c" command)))
+    (let ((buffer (eat-make base-name (term-sessions--attach-shell directory)
+                            nil shell-command-switch command)))
       (pop-to-buffer buffer)
       (with-current-buffer buffer
         (eat-semi-char-mode)
@@ -336,7 +337,10 @@ COMMAND is the optional zmx creation command for missing sessions."
         (_ (user-error "Frontend `%s' cannot attach through TRAMP process APIs" frontend))))))
 
 (defun term-sessions--open-shell (name command buffer-name &optional spec)
-  "Open COMMAND in an ordinary shell BUFFER-NAME for session NAME."
+  "Open COMMAND in an ordinary shell BUFFER-NAME for session NAME.
+The attach runs inside the long-lived comint shell, so liveness checks see
+the shell process rather than the attach itself (see
+`term-sessions--buffer-live-process-p')."
   (let ((buffer (shell buffer-name)))
     (with-current-buffer buffer
       (comint-send-string buffer (concat command "\n"))
@@ -406,7 +410,7 @@ Otherwise, a non-matching name creates a new entry in `default-directory', like
 (defun term-sessions--pop-existing-session-buffer (name directory &optional backend)
   "Pop to an existing term-session BACKEND buffer for NAME at DIRECTORY.
 Return the buffer when one was found, otherwise nil."
-  (when-let* ((buffer (term-sessions--session-buffer name directory backend)))
+  (when-let* ((buffer (term-sessions--live-session-buffer name directory backend)))
     (pop-to-buffer buffer)
     buffer))
 

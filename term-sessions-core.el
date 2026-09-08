@@ -10,6 +10,8 @@
 (require 'cl-lib)
 (require 'subr-x)
 
+(defvar ghostel--process)
+
 (defgroup term-sessions nil
   "Persistent terminal sessions owned by an external backend."
   :group 'terminals
@@ -43,7 +45,9 @@ Currently only `zmx' is implemented."
   "History of shell commands read by term-sessions prompts.")
 
 (defvar term-sessions--completion-entry-table (make-hash-table :test #'equal)
-  "Recently offered completion candidates keyed by display string.")
+  "Recently offered completion candidates keyed by display string.
+This is a best-effort cache.  Table builders clear it at the start of each
+completion invocation, so stale entries never survive a fresh pick.")
 
 (defvar-local term-sessions-current-name nil
   "Name of the term session associated with the current buffer.")
@@ -186,8 +190,23 @@ keyed to the local backend rather than to one cwd."
              (or (file-remote-p directory 'host) remote)))
     'local))
 
+(defun term-sessions--buffer-live-process-p (&optional buffer)
+  "Return non-nil when BUFFER (default current) has a live terminal process.
+Checks `get-buffer-process' plus Ghostel's private process variable, which is
+not exposed through that accessor.
+Known limitation: `shell' frontend buffers run the attach inside a
+long-lived comint shell, so this reports the shell's liveness rather than
+the attach's."
+  (with-current-buffer (or buffer (current-buffer))
+    (let ((process (or (get-buffer-process (current-buffer))
+                       (bound-and-true-p ghostel--process))))
+      (and (processp process) (process-live-p process)))))
+
 (defun term-sessions--session-buffer (name directory &optional backend)
-  "Return an existing term-sessions BACKEND buffer for NAME at DIRECTORY."
+  "Return an existing term-sessions BACKEND buffer for NAME at DIRECTORY.
+This matches on recorded buffer metadata only; it does not require the
+terminal process to be alive.  Use `term-sessions--live-session-buffer' when
+the buffer is about to be reused for an attach."
   (let ((directory-key (term-sessions--directory-key directory))
         (backend (or backend term-sessions-backend))
         found)
@@ -201,6 +220,15 @@ keyed to the local backend rather than to one cwd."
                    term-sessions-current-terminal-p)
           (setq found buffer))))
     found))
+
+(defun term-sessions--live-session-buffer (name directory &optional backend)
+  "Return a live term-sessions BACKEND buffer for NAME at DIRECTORY.
+Like `term-sessions--session-buffer' but ignores buffers whose terminal
+process has exited, so reopening a session re-attaches instead of popping to
+a dead buffer."
+  (when-let* ((buffer (term-sessions--session-buffer name directory backend)))
+    (when (term-sessions--buffer-live-process-p buffer)
+      buffer)))
 
 (defun term-sessions--entry-name (entry)
   "Return session name from ENTRY."
@@ -234,7 +262,10 @@ such as `find-file'."
       (t cwd)))))
 
 (defun term-sessions--register-completion-entry (candidate entry)
-  "Remember that CANDIDATE names ENTRY for completion actions."
+  "Remember that CANDIDATE names ENTRY for completion actions.
+Table builders clear the table at the start of each invocation, so this
+must never clear mid-build: earlier candidates of the in-progress invocation
+still reference their mappings."
   (puthash (substring-no-properties candidate)
            entry
            term-sessions--completion-entry-table)

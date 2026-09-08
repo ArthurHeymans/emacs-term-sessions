@@ -306,6 +306,8 @@
             (setq-local term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--active-p)
                      (lambda (name) (equal name "dev")))
+                    ((symbol-function 'term-sessions--buffer-live-process-p)
+                     (lambda (&optional _buffer) t))
                     ((symbol-function 'pop-to-buffer)
                      (lambda (buf &rest _args) (setq popped buf)))
                     ((symbol-function 'term-sessions-open-with-frontend)
@@ -650,6 +652,8 @@
                   term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--ensure-zmx)
                      (lambda () (setq ensured t)))
+                    ((symbol-function 'term-sessions--buffer-live-process-p)
+                     (lambda (&optional _buffer) t))
                     ((symbol-function 'term-sessions--open-command-frontend)
                      (lambda (&rest args) (setq opened args))))
             (should (eq (term-sessions-open-with-frontend "dev" nil 'term t)
@@ -1308,7 +1312,11 @@
                      :command "nvim" :updated "2026-01-01"))
         (remote (list :name "prod" :directory "/ssh:host:/" :where "ssh:host"
                       :clients "0" :cwd "/srv" :project "srv"
-                      :command "bash" :updated "2026-01-01")))
+                      :command "bash" :updated "2026-01-01"))
+        (term-sessions-consult--entries-cache nil)
+        (term-sessions-consult--entries-computed nil)
+        (term-sessions-consult--displayed-cache nil)
+        (term-sessions-consult--displayed-computed nil))
     (cl-letf (((symbol-function 'term-sessions-consult--entries)
                (lambda () (list local remote)))
               ((symbol-function 'frame-width) (lambda (&optional _frame) 100)))
@@ -1344,6 +1352,8 @@
                   term-sessions-current-terminal-p t))
           (cl-letf (((symbol-function 'term-sessions--ensure-zmx)
                      (lambda () (setq ensured t)))
+                    ((symbol-function 'term-sessions--buffer-live-process-p)
+                     (lambda (&optional _buffer) t))
                     ((symbol-function 'term-sessions--open-command-frontend)
                      (lambda (&rest args) (setq opened args))))
             (term-sessions-consult--open candidate)
@@ -1585,6 +1595,204 @@
      candidate (list :name "dev" :directory "/ssh:host:/tmp/"))
     (should-error (term-sessions-action-copy-attach-command candidate)
                   :type 'user-error)))
+
+(ert-deftest term-sessions-test-live-session-buffer-rejects-dead-terminal ()
+  ;; A buffer whose terminal process has exited must not be reused for an
+  ;; attach, otherwise reopening a session pops to a dead buffer forever.
+  (let ((buffer (generate-new-buffer " *term-sessions-test-dead*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (setq default-directory "/tmp/project/")
+            (term-sessions--mark-buffer "dev" nil t))
+          ;; Metadata matcher still finds it ...
+          (should (eq (term-sessions--session-buffer "dev" "/tmp/project/" 'zmx)
+                      buffer))
+          ;; ... but the reuse path must not.
+          (should-not (term-sessions--live-session-buffer
+                       "dev" "/tmp/project/" 'zmx)))
+      (kill-buffer buffer))))
+
+(ert-deftest term-sessions-test-live-session-buffer-accepts-live-process ()
+  (let ((buffer (generate-new-buffer " *term-sessions-test-live*"))
+        (directory (file-name-as-directory temporary-file-directory))
+        process)
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (setq default-directory directory)
+            (term-sessions--mark-buffer "dev" nil t)
+            (setq process (start-process "term-sessions-test-live" buffer
+                                         "sleep" "60")))
+          (should (eq (term-sessions--live-session-buffer
+                       "dev" directory 'zmx)
+                      buffer)))
+      (when (process-live-p process)
+        (delete-process process))
+      (kill-buffer buffer))))
+
+(ert-deftest term-sessions-test-consult-enumerates-sessions-once ()
+  ;; Seven Consult sources share one cached enumeration; previously each
+  ;; source re-queried zmx/TRAMP, multiplying the cost by seven.
+  (let ((calls 0))
+    (cl-letf (((symbol-function 'term-sessions-list--session-rows)
+               (lambda ()
+                 (cl-incf calls)
+                 (list (list (list :name "dev" :directory "/tmp/" :where "local"
+                                   :cwd "/tmp" :command "" :clients "0")
+                             [])))))
+      (let ((term-sessions-consult--entries-cache nil)
+            (term-sessions-consult--entries-computed nil)
+            (term-sessions-consult--displayed-cache nil)
+            (term-sessions-consult--displayed-computed nil))
+        (dolist (source term-sessions-consult-sources)
+          (funcall (plist-get (symbol-value source) :items)))
+        (should (= calls 1))
+        ;; The display suffix numbering is computed once, so a second pass
+        ;; yields identical candidates.
+        (should (equal (funcall (plist-get term-sessions-consult--source-session
+                                          :items))
+                       (funcall (plist-get term-sessions-consult--source-local-session
+                                          :items))))))))
+
+(ert-deftest term-sessions-test-consult-caches-empty-enumeration ()
+  ;; An empty session list is nil; it must still be cached instead of
+  ;; re-querying zmx once per source.
+  (let ((calls 0))
+    (cl-letf (((symbol-function 'term-sessions-list--session-rows)
+               (lambda () (cl-incf calls) nil)))
+      (let ((term-sessions-consult--entries-cache nil)
+            (term-sessions-consult--entries-computed nil)
+            (term-sessions-consult--displayed-cache nil)
+            (term-sessions-consult--displayed-computed nil))
+        (dolist (source term-sessions-consult-sources)
+          (should-not (funcall (plist-get (symbol-value source) :items))))
+        (should (= calls 1))))))
+
+(ert-deftest term-sessions-test-list-bulk-kill-continues-past-error ()
+  (let ((buffer (generate-new-buffer " *term-sessions-test-list-kill*"))
+        killed)
+    (unwind-protect
+        (with-current-buffer buffer
+          (setq default-directory "/tmp/")
+          (term-sessions-list-mode)
+          (setq term-sessions-list--marked-entries
+                (list (list :name "gone" :directory "/tmp/")
+                      (list :name "live" :directory "/tmp/")))
+          (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
+                    ((symbol-function 'revert-buffer) (lambda (&rest _) t))
+                    ((symbol-function 'term-sessions--zmx)
+                     (lambda (&rest args)
+                       (push (cadr args) killed)
+                       (when (equal (cadr args) "gone")
+                         (user-error "no such session")))))
+            (term-sessions-list-kill)
+            (should (equal (sort killed #'string<) '("gone" "live")))))
+      (kill-buffer buffer))))
+
+(ert-deftest term-sessions-test-org-babel-results-none-not-forced-raw ()
+  (should-not (term-sessions--org-babel-raw-result-needed-p
+               '((:term-session . "build") (:results . "none"))))
+  (should-not (term-sessions--org-babel-raw-result-needed-p
+               '((:term-session . "build") (:results . "silent"))))
+  (should (term-sessions--org-babel-raw-result-needed-p
+           '((:term-session . "build") (:results . "value")))))
+
+(ert-deftest term-sessions-test-zmx-list-fields-ignore-unknown-keys ()
+  ;; Backend output must not be able to intern arbitrary symbols.
+  (should (equal (term-sessions--parse-key-value-fields
+                  "name=dev\tpid=1\tunknown_field=x\tclients=0")
+                 '(:name "dev" :pid "1" :clients "0"))))
+
+(ert-deftest term-sessions-test-zmx-version-fields-ignore-unknown-keys ()
+  (cl-letf (((symbol-function 'term-sessions--zmx)
+             (lambda (&rest _args)
+               "zmx\t0.7.0\nlog_dir\t/tmp/logs\nunknown_field\tx\n")))
+    (should (equal (term-sessions--zmx-version-info)
+                   '(:zmx "0.7.0" :log_dir "/tmp/logs")))))
+
+(ert-deftest term-sessions-test-completion-entry-table-cleared-at-build-start ()
+  ;; Builders clear the table at the start of each invocation instead of
+  ;; mid-build, so registering many candidates in one invocation cannot drop
+  ;; earlier candidates of that same invocation.
+  (let ((saved (copy-hash-table term-sessions--completion-entry-table)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'term-sessions--zmx-list-sessions)
+                   (lambda () nil)))
+          (puthash "stale" (list :name "stale")
+                   term-sessions--completion-entry-table)
+          (term-sessions--session-completion-table '() "/tmp/")
+          (should (= (hash-table-count term-sessions--completion-entry-table) 0))
+          (term-sessions--register-completion-entry
+           "cand" (list :name "s"))
+          (should (equal (term-sessions--completion-entry "cand")
+                         (list :name "s"))))
+      (clrhash term-sessions--completion-entry-table)
+      (maphash (lambda (k v)
+                 (puthash k v term-sessions--completion-entry-table))
+               saved))))
+
+(ert-deftest term-sessions-test-async-skip-exempts-rpc-without-process ()
+  (let ((term-sessions-list--failed-remotes (make-hash-table :test #'equal)))
+    (cl-letf (((symbol-function 'term-sessions-list--remote-connection-state)
+               (lambda (_directory) 'absent)))
+      (should-not (term-sessions-list--skip-unavailable-async-remote-p
+                   "/rpc:example:/"))
+      (should (term-sessions-list--skip-unavailable-async-remote-p
+               "/ssh:example:/")))))
+
+(ert-deftest term-sessions-test-list-refresh-generation-is-monotonic ()
+  (with-temp-buffer
+    (term-sessions-list-mode)
+    (cl-letf (((symbol-function 'term-sessions-list--local-directory)
+               (lambda () "/tmp/"))
+              ((symbol-function 'term-sessions-list--session-buffer-directories)
+               (lambda () nil))
+              ((symbol-function 'term-sessions-list--open-remote-directories)
+               (lambda () nil))
+              ((symbol-function 'term-sessions-list--query-directory)
+               (lambda (_directory) nil)))
+      (term-sessions-list-refresh)
+      (let ((first term-sessions-list--refresh-generation))
+        (term-sessions-list-refresh)
+        (should (< first term-sessions-list--refresh-generation))
+        (should (= term-sessions-list--refresh-generation
+                   term-sessions-list--generation-counter))))))
+
+(ert-deftest term-sessions-test-list-store-org-link-pushes-org-store ()
+  (let ((org-stored-links nil)
+        stored
+        (term-sessions-current-time-function (lambda () 0)))
+    (cl-letf (((symbol-function 'org-link-store-props)
+               (lambda (&rest plist) (setq stored plist))))
+      (let ((link (term-sessions-list--store-org-link-for-entry
+                   (list :name "dev" :directory "/tmp/"))))
+        (should (string-prefix-p "term-session:spec:" link))
+        (should (string-match-p "name=dev" link))
+        (should (string-match-p "name=dev" (plist-get stored :link)))
+        (should (= (length org-stored-links) 1))
+        (should (equal (caar org-stored-links) link))))))
+
+(ert-deftest term-sessions-test-real-zmx-integration ()
+  "Exercise the zmx backend against a real local zmx, when available."
+  (skip-unless (executable-find term-sessions-zmx-program))
+  (let* ((name (format "term-sessions-test-%d" (emacs-pid)))
+         (default-directory temporary-file-directory)
+         (created nil))
+    (unwind-protect
+        (progn
+          (term-sessions--zmx "run" name "-d" "sleep" "60")
+          (setq created t)
+          (should (term-sessions--active-p name))
+          (let* ((sessions (term-sessions--zmx-list-sessions))
+                 (session (seq-find (lambda (s) (equal (plist-get s :name) name))
+                                    sessions)))
+            (should session)
+            (should (plist-get session :pid))
+            (should (plist-get session :clients)))
+          (should (stringp (term-sessions--zmx-log-dir))))
+      (when created
+        (ignore-errors (term-sessions--zmx "kill" name))))))
 
 (provide 'term-sessions-tests)
 ;;; term-sessions-tests.el ends here
