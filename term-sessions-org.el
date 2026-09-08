@@ -10,6 +10,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'url-util)
+(require 'ol)
 (require 'term-sessions-core)
 (require 'term-sessions-zmx)
 (require 'term-sessions-tramp)
@@ -252,7 +253,7 @@ The `:term-session' header enables this integration.  If its value is a
 specific string, that string is used as the zmx session name.  If its value
 is t/yes/true, use the Org `:session' name when present and not `none';
 otherwise use `term-sessions-org-babel-default-session-name'."
-  (when-let ((value (alist-get :term-session params)))
+  (when-let* ((value (alist-get :term-session params)))
     (unless (term-sessions--org-babel-false-value-p value)
       (if (term-sessions--org-babel-default-value-p value)
           (let ((session (alist-get :session params)))
@@ -298,7 +299,7 @@ through the normal visible frontend and return `created'."
   (if (term-sessions--active-p name)
       'active
     (let ((process-environment (copy-sequence process-environment)))
-      (when-let ((shell (term-sessions--org-babel-login-shell)))
+      (when-let* ((shell (term-sessions--org-babel-login-shell)))
         (setenv "SHELL" shell))
       (term-sessions-open-with-frontend
        name nil term-sessions-preferred-frontend t))
@@ -328,7 +329,7 @@ This isolates Ghostel's private process storage from Babel send logic."
 
 (defun term-sessions--org-babel-live-buffer (name)
   "Return NAME's existing session buffer when it has a live process."
-  (when-let ((buffer (term-sessions--session-buffer
+  (when-let* ((buffer (term-sessions--session-buffer
                       name default-directory term-sessions-backend)))
     (when (term-sessions--org-babel-buffer-process buffer)
       buffer)))
@@ -358,7 +359,7 @@ This isolates Ghostel's private process storage from Babel send logic."
 (defun term-sessions--org-babel-send-to-buffer (buffer body)
   "Send BODY through existing terminal BUFFER.
 Return non-nil when BUFFER had a live process and the text was sent."
-  (when-let ((process (term-sessions--org-babel-buffer-process buffer)))
+  (when-let* ((process (term-sessions--org-babel-buffer-process buffer)))
     (with-current-buffer buffer
       (term-sessions--org-babel-process-send-string
        process (term-sessions--org-babel-input body)))
@@ -379,7 +380,7 @@ Return `zmx' when sent."
 Prefer an already-open Emacs terminal buffer.  This avoids creating a
 short-lived `zmx send' client, which can temporarily steal zmx leadership from
 the visible terminal.  Return `buffer' or `zmx' to describe the send path."
-  (if-let ((buffer (term-sessions--org-babel-live-buffer name)))
+  (if-let* ((buffer (term-sessions--org-babel-live-buffer name)))
       (if (term-sessions--org-babel-send-to-buffer buffer body)
           'buffer
         (term-sessions--org-babel-send-via-zmx-or-error name body))
@@ -449,6 +450,7 @@ the visible terminal.  Return `buffer' or `zmx' to describe the send path."
 (defun term-sessions-org-babel-execute-src-block (org-babel-execute-src-block-fun
                                                  &rest args)
   "Call ORG-BABEL-EXECUTE-SRC-BLOCK-FUN with raw Org link results when needed.
+ARGS are the arguments forwarded to ORG-BABEL-EXECUTE-SRC-BLOCK-FUN.
 Org's default scalar string insertion turns returned links into example text,
 which makes `term-session:' links non-clickable.  For `:term-session' blocks,
 add `raw' to `:results' unless the user explicitly chose another result
@@ -478,7 +480,7 @@ PARAMS with `:term-session' enable zmx delivery.  If the session is missing,
 create it as an interactive user shell first.  Then send the block text
 through the Emacs terminal buffer and return a clickable `term-session:' Org
 link."
-  (if-let ((name (term-sessions--org-babel-session-name params)))
+  (if-let* ((name (term-sessions--org-babel-session-name params)))
       (term-sessions--org-babel-reassemble-result
        (term-sessions--org-babel-send name body)
        params)
@@ -490,7 +492,7 @@ link."
 If `:term-session' reaches this lower-level function, send BODY to the
 terminal session and return a `term-session:' Org link."
   (pcase-let ((`(,_session ,body ,params ,_stdin ,_cmdline) args))
-    (if-let ((name (term-sessions--org-babel-session-name params)))
+    (if-let* ((name (term-sessions--org-babel-session-name params)))
         (term-sessions--org-babel-send name body)
       (apply org-babel-sh-evaluate-fun args))))
 
@@ -507,25 +509,48 @@ offer to recreate it with the stored command and cwd."
     (unless (string= backend "zmx")
       (user-error "Unsupported term-session backend: %s" backend))
     (if (term-sessions--active-p name)
-        (if-let ((buffer (term-sessions--session-buffer name default-directory 'zmx)))
+        (if-let* ((buffer (term-sessions--session-buffer name default-directory 'zmx)))
             (pop-to-buffer buffer)
           (term-sessions-open-with-frontend name nil frontend nil))
       (when (yes-or-no-p (format "Session `%s' is not active; recreate it? " name))
         (term-sessions-open-with-frontend name command frontend t)))))
 
-;; Registering the link and advices up front is safe: `advice-add' accepts
-;; not-yet-loaded functions, and `org-load-hook' fires when Org arrives.
+;; Registering the link and advices up front is safe: the link registry
+;; lives in `ol', which is required above, and `advice-add' accepts
+;; not-yet-loaded (or autoloaded) Babel functions, keeping the advice when
+;; Org arrives.  No `org-load-hook' entry is needed.  The work lives in
+;; setup/teardown helpers (rather than in top-level `add-hook'/`advice-add'
+;; forms) so the integration can be removed again with
+;; `term-sessions-org-teardown', for example via `unload-feature'.
 (defun term-sessions--org-register-link ()
   "Register the `term-session' Org link type."
   (org-link-set-parameters "term-session"
                            :follow #'term-sessions--open-org-path
                            :store #'term-sessions-store-org-link))
-(add-hook 'org-load-hook #'term-sessions--org-register-link)
+(defun term-sessions-org-setup ()
+  "Register the `term-session' Org link and Babel advice.
+Safe to call multiple times.  Undo with `term-sessions-org-teardown'."
+  (term-sessions--org-register-link)
+  (advice-add 'org-babel-execute-src-block
+              :around #'term-sessions-org-babel-execute-src-block)
+  (advice-add 'org-babel-execute:shell :around #'term-sessions-org-babel-shell)
+  (advice-add 'org-babel-sh-evaluate :around #'term-sessions-org-babel-sh))
 
-(advice-add 'org-babel-execute-src-block
-            :around #'term-sessions-org-babel-execute-src-block)
-(advice-add 'org-babel-execute:shell :around #'term-sessions-org-babel-shell)
-(advice-add 'org-babel-sh-evaluate :around #'term-sessions-org-babel-sh)
+(defun term-sessions-org-teardown ()
+  "Remove the `term-session' Org link and Babel advice."
+  (when (boundp 'org-link-parameters)
+    (setq org-link-parameters
+          (assoc-delete-all "term-session" org-link-parameters)))
+  (advice-remove 'org-babel-execute-src-block
+                 #'term-sessions-org-babel-execute-src-block)
+  (advice-remove 'org-babel-execute:shell #'term-sessions-org-babel-shell)
+  (advice-remove 'org-babel-sh-evaluate #'term-sessions-org-babel-sh))
+
+(term-sessions-org-setup)
+
+(defun term-sessions-org-unload-function ()
+  "Remove Org integration before unloading this feature."
+  (term-sessions-org-teardown))
 
 (provide 'term-sessions-org)
 ;;; term-sessions-org.el ends here

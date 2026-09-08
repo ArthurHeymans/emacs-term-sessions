@@ -474,7 +474,7 @@
   "Return an Embark target for the `term-sessions-list-mode' row at point."
   (when (and (derived-mode-p 'term-sessions-list-mode)
              (fboundp 'tabulated-list-get-id))
-    (when-let ((entry (tabulated-list-get-id)))
+    (when-let* ((entry (tabulated-list-get-id)))
       (let ((candidate (term-sessions--register-completion-entry
                         (format "%s @ %s %s"
                                 (term-sessions--entry-name entry)
@@ -486,7 +486,7 @@
 
 (defun term-sessions-action-current-buffer-target ()
   "Return an Embark target for the term session owned by the current buffer."
-  (when-let ((entry (term-sessions-action--current-buffer-entry)))
+  (when-let* ((entry (term-sessions-action--current-buffer-entry)))
     (let ((candidate (term-sessions--register-completion-entry
                       (term-sessions--entry-name entry) entry)))
       `(term-session . ,candidate))))
@@ -498,22 +498,92 @@
 (defvar embark-region-map)
 (defvar embark-target-finders)
 
-(defun term-sessions-actions--embark-setup ()
-  "Wire term-sessions actions into Embark."
-  (define-key embark-region-map (kbd "S") #'term-sessions-action-send-text-to-session)
-  (define-key embark-region-map (kbd "C") #'term-sessions-action-send-command-text-to-session)
-  (define-key embark-file-map (kbd "S") #'term-sessions-action-send-file-path-to-session)
-  (define-key embark-file-map (kbd "R") #'term-sessions-action-run-file-in-session)
-  (define-key embark-expression-map (kbd "S") #'term-sessions-action-send-command-text-to-session)
-  (define-key embark-identifier-map (kbd "S") #'term-sessions-action-send-command-text-to-session)
-  (add-to-list 'embark-keymap-alist '(term-session . term-sessions-action-map))
-  (add-to-list 'embark-keymap-alist '(term-session-link . term-sessions-org-link-action-map))
-  (add-to-list 'embark-target-finders #'term-sessions-action-org-link-target)
-  (add-to-list 'embark-target-finders #'term-sessions-action-list-row-target 'append)
-  (add-to-list 'embark-target-finders #'term-sessions-action-current-buffer-target 'append))
+(defconst term-sessions--embark-bindings
+  '((embark-region-map "S" term-sessions-action-send-text-to-session)
+    (embark-region-map "C" term-sessions-action-send-command-text-to-session)
+    (embark-file-map "S" term-sessions-action-send-file-path-to-session)
+    (embark-file-map "R" term-sessions-action-run-file-in-session)
+    (embark-expression-map "S" term-sessions-action-send-command-text-to-session)
+    (embark-identifier-map "S" term-sessions-action-send-command-text-to-session))
+  "Embark keybindings managed by setup and teardown.
+Each entry is a (KEYMAP KEY COMMAND) triple.")
 
-(with-eval-after-load 'embark
-  (term-sessions-actions--embark-setup))
+(defconst term-sessions--embark-keymap-entries
+  '((term-session . term-sessions-action-map)
+    (term-session-link . term-sessions-org-link-action-map))
+  "Entries added to `embark-keymap-alist' by setup.")
+
+(defconst term-sessions--embark-target-finders
+  '((term-sessions-action-org-link-target)
+    (term-sessions-action-list-row-target append)
+    (term-sessions-action-current-buffer-target append))
+  "Finders added to `embark-target-finders' by setup.
+Each entry is (FINDER . APPEND-P), mirroring `add-to-list' arguments.")
+
+(defvar term-sessions--embark-installed nil
+  "Non-nil after `term-sessions-embark-setup' has installed its state.")
+
+(defvar term-sessions--embark-prior-bindings nil
+  "Embark bindings shadowed by setup, as (KEYMAP KEY DEFINITION) triples.")
+
+(defvar term-sessions--embark-added-alist-entries nil
+  "Integration entries installed by setup, as (ALIST-SYMBOL . ENTRY) pairs.
+Only these entries are removed again on teardown.")
+
+;;;###autoload
+(defun term-sessions-embark-setup ()
+  "Wire term-sessions actions into Embark.
+Install keybindings, keymap entries and target finders.  Safe to
+call multiple times.  Undo with `term-sessions-embark-teardown'.
+When Embark is already loaded this takes effect immediately;
+otherwise call this once Embark is available."
+  (interactive)
+  (require 'embark)
+  (unless term-sessions--embark-installed
+    (setq term-sessions--embark-prior-bindings
+          (mapcar (lambda (spec)
+                    (list (nth 0 spec) (nth 1 spec)
+                          (lookup-key (symbol-value (nth 0 spec))
+                                      (kbd (nth 1 spec)))))
+                  term-sessions--embark-bindings))
+    (setq term-sessions--embark-added-alist-entries nil)
+    (dolist (spec term-sessions--embark-bindings)
+      (define-key (symbol-value (nth 0 spec))
+                  (kbd (nth 1 spec)) (nth 2 spec)))
+    (dolist (entry term-sessions--embark-keymap-entries)
+      (unless (member entry embark-keymap-alist)
+        (push entry embark-keymap-alist)
+        (push (cons 'embark-keymap-alist entry)
+              term-sessions--embark-added-alist-entries)))
+    (dolist (spec term-sessions--embark-target-finders)
+      (unless (member (car spec) embark-target-finders)
+        (add-to-list 'embark-target-finders (car spec) (cdr spec))
+        (push (cons 'embark-target-finders (car spec))
+              term-sessions--embark-added-alist-entries)))
+    (setq term-sessions--embark-installed t)))
+
+(defun term-sessions-embark-teardown ()
+  "Remove term-sessions actions from Embark.
+Restore the keybindings shadowed by setup; entries added to Embark
+alists after setup are left alone."
+  (when (and term-sessions--embark-installed (featurep 'embark))
+    (dolist (saved term-sessions--embark-prior-bindings)
+      (define-key (symbol-value (nth 0 saved))
+                  (kbd (nth 1 saved)) (nth 2 saved)))
+    (dolist (added term-sessions--embark-added-alist-entries)
+      (set (car added) (delete (cdr added) (symbol-value (car added))))))
+  (setq term-sessions--embark-prior-bindings nil
+        term-sessions--embark-added-alist-entries nil
+        term-sessions--embark-installed nil))
+
+(defun term-sessions-actions-unload-function ()
+  "Remove Embark integration before unloading this feature."
+  (term-sessions-embark-teardown))
+
+;; Install eagerly when Embark arrived first; otherwise call
+;; `term-sessions-embark-setup' once Embark is loaded.
+(when (featurep 'embark)
+  (term-sessions-embark-setup))
 
 (provide 'term-sessions-actions)
 ;;; term-sessions-actions.el ends here
