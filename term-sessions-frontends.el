@@ -193,7 +193,7 @@ surrounding stars, so BUFFER-NAME is stripped when present."
 
 (defun term-sessions--open-term-process (name program args buffer-name &optional spec)
   "Open PROGRAM with ARGS in a built-in term buffer for session NAME.
-This starts PROGRAM with `start-file-process' and term-mode plumbing rather
+This starts PROGRAM with `start-file-process' and `term-mode' plumbing rather
 than wrapping the attach in a shell command, so a remote `default-directory'
 can be handled by TRAMP or tramp-rpc process file handlers."
   (let* ((base-name (term-sessions--terminal-buffer-base-name name buffer-name))
@@ -204,7 +204,7 @@ can be handled by TRAMP or tramp-rpc process file handlers."
       (with-current-buffer buffer
         (setq default-directory directory)
         (term-mode)
-        (when-let ((proc (get-buffer-process buffer)))
+        (when-let* ((proc (get-buffer-process buffer)))
           (delete-process proc))
         (let* ((process-environment
                 (nconc
@@ -339,7 +339,7 @@ Otherwise, a non-matching name creates a new entry in `default-directory', like
 (defun term-sessions--pop-existing-session-buffer (name directory &optional backend)
   "Pop to an existing term-session BACKEND buffer for NAME at DIRECTORY.
 Return the buffer when one was found, otherwise nil."
-  (when-let ((buffer (term-sessions--session-buffer name directory backend)))
+  (when-let* ((buffer (term-sessions--session-buffer name directory backend)))
     (pop-to-buffer buffer)
     buffer))
 

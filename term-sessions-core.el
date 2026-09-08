@@ -178,7 +178,7 @@ FALLBACK defaults to 10."
 Remote zmx sessions are keyed by their final user and host, independent of the
 TRAMP method and localname used to reach them.  Local zmx sessions are likewise
 keyed to the local backend rather than to one cwd."
-  (if-let ((remote (file-remote-p directory)))
+  (if-let* ((remote (file-remote-p directory)))
       (list 'remote
             (or (file-remote-p directory 'user) (user-login-name))
             (substring-no-properties

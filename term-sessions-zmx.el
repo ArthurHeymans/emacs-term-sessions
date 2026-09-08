@@ -143,7 +143,7 @@ instead of the current project directory, which may be read-only."
 
 (defun term-sessions--zmx-run-sentinel (process event)
   "Report EVENT for an async `zmx run' PROCESS and drop its buffer.
-The output buffer is only kept when a window is displaying it." 
+The output buffer is only kept when a window is displaying it."
   (term-sessions--zmx-process-sentinel process event)
   (when (memq (process-status process) '(exit signal))
     (let ((buffer (process-buffer process)))
@@ -218,7 +218,7 @@ LOG-DIR defaults to `term-sessions--zmx-log-dir', which may spawn a
 `zmx version' process; callers listing many sessions should resolve it
 once and pass it here."
   (when-let* ((log-dir (or log-dir (term-sessions--zmx-log-dir))))
-    (when-let ((attrs (ignore-errors
+    (when-let* ((attrs (ignore-errors
                         (file-attributes
                          (term-sessions--zmx-log-file-name name log-dir)))))
       (file-attribute-modification-time attrs))))
@@ -247,7 +247,7 @@ once and pass it here."
 
 (defun term-sessions--zmx-process-tpgid (pid)
   "Return foreground process group id for process PID, or nil."
-  (when-let ((output (term-sessions--process-output-string
+  (when-let* ((output (term-sessions--process-output-string
                       "ps" "-o" "tpgid=" "-p" (format "%s" pid))))
     (let ((tpgid (string-to-number output)))
       (when (> tpgid 0)
@@ -263,7 +263,7 @@ once and pass it here."
   "Add live cwd/command fields to SESSION when available."
   (if (not term-sessions-zmx-enrich-process-info)
       session
-    (if-let ((pid (plist-get session :pid)))
+    (if-let* ((pid (plist-get session :pid)))
         (let ((cwd (term-sessions--zmx-process-cwd pid))
               (cmd (term-sessions--zmx-current-command pid)))
           (when cwd
@@ -318,7 +318,7 @@ can distinguish failures from an empty session list."
 
 (defun term-sessions--completion-annotate (candidate)
   "Return annotation string for session CANDIDATE."
-  (when-let ((entry (term-sessions--completion-entry candidate)))
+  (when-let* ((entry (term-sessions--completion-entry candidate)))
     (let ((cwd (or (plist-get entry :cwd) ""))
           (command (or (plist-get entry :command) ""))
           (clients (or (plist-get entry :clients) "")))

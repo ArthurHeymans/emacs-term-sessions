@@ -158,9 +158,9 @@ connection does not keep distracting later list refreshes."
    ((null time-or-seconds) "")
    ((stringp time-or-seconds)
     (if (term-sessions-list--numeric-string-p time-or-seconds)
-        (format-time-string "%Y-%m-%d %H:%M" (string-to-number time-or-seconds))
+        (format-time-string "%F %R" (string-to-number time-or-seconds))
       time-or-seconds))
-   (t (format-time-string "%Y-%m-%d %H:%M" time-or-seconds))))
+   (t (format-time-string "%F %R" time-or-seconds))))
 
 (defun term-sessions-list--location-label (directory)
   "Return human label for DIRECTORY."
@@ -231,22 +231,22 @@ connection does not keep distracting later list refreshes."
     (save-excursion
       (goto-char (point-min))
       (while (not (eobp))
-        (when-let ((entry (tabulated-list-get-id)))
+        (when-let* ((entry (tabulated-list-get-id)))
           (push (cons (term-sessions-list--entry-label entry) (point)) index))
         (forward-line 1)))
     (nreverse index)))
 
 (defun term-sessions-list-eldoc (_callback)
   "Show session details in Eldoc for the session at point."
-  (when-let ((entry (tabulated-list-get-id)))
+  (when-let* ((entry (tabulated-list-get-id)))
     (string-join
      (delq nil
            (list (format "%s  clients:%s"
                          (term-sessions-list--entry-label entry)
                          (or (plist-get entry :clients) ""))
-                 (when-let ((cwd (plist-get entry :cwd)))
+                 (when-let* ((cwd (plist-get entry :cwd)))
                    (format "cwd: %s" cwd))
-                 (when-let ((command (plist-get entry :command)))
+                 (when-let* ((command (plist-get entry :command)))
                    (unless (string-empty-p command)
                      (format "cmd: %s" command)))))
      "\n")))
@@ -271,7 +271,7 @@ connection does not keep distracting later list refreshes."
 zmx sessions are owned by the final remote user/host, not by the TRAMP method
 used to reach it.  `/sshx:host:' and `/rpc:host:' therefore refer to the same
 session server and should not be listed twice."
-  (when-let ((host (tramp-file-name-host vec)))
+  (when-let* ((host (tramp-file-name-host vec)))
     (list (or (tramp-file-name-user vec) (user-login-name))
           (substring-no-properties host)
           (tramp-file-name-port vec))))
@@ -330,7 +330,7 @@ session server and should not be listed twice."
 
 (defun term-sessions-list--record-remote-failure (directory error)
   "Remember that remote DIRECTORY failed with ERROR."
-  (when-let ((remote (file-remote-p directory)))
+  (when-let* ((remote (file-remote-p directory)))
     (puthash remote (cons (current-time) error) term-sessions-list--failed-remotes)))
 
 (defun term-sessions-list--remote-connection-state (directory)
@@ -339,7 +339,7 @@ Possible values are `live', `dead', `absent', `unknown', or nil for local
 directories.  This consults existing TRAMP connection state only; it must not
 start or reconnect providers during list refresh."
   (when (file-remote-p directory)
-    (if-let ((vec (ignore-errors (tramp-dissect-file-name directory))))
+    (if-let* ((vec (ignore-errors (tramp-dissect-file-name directory))))
         (if (fboundp 'tramp-get-connection-process)
             (let ((process (ignore-errors (tramp-get-connection-process vec))))
               (cond
@@ -378,7 +378,7 @@ reconnect in the UI path, which is exactly what we are trying to avoid."
 
 (defun term-sessions-list--clear-remote-failure (directory)
   "Forget any cached failure for remote DIRECTORY."
-  (when-let ((remote (file-remote-p directory)))
+  (when-let* ((remote (file-remote-p directory)))
     (remhash remote term-sessions-list--failed-remotes)))
 
 (defun term-sessions-list--session-buffer-directories ()
@@ -481,16 +481,17 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
 
 (defun term-sessions-list--remote-query-done (process)
   "Clean up PROCESS bookkeeping for an asynchronous remote query."
-  (when-let ((timer (process-get process 'term-sessions-list-timer)))
+  (when-let* ((timer (process-get process 'term-sessions-list-timer)))
     (cancel-timer timer))
-  (when-let ((list-buffer (process-get process 'term-sessions-list-buffer)))
+  (when-let* ((list-buffer (process-get process 'term-sessions-list-buffer)))
     (when (buffer-live-p list-buffer)
       (with-current-buffer list-buffer
         (setq term-sessions-list--pending-remote-queries
               (delq process term-sessions-list--pending-remote-queries))))))
 
 (defun term-sessions-list--remote-query-install (buffer generation directory rows)
-  "Install asynchronous ROWS for DIRECTORY into BUFFER if still current."
+  "Install asynchronous ROWS for DIRECTORY into BUFFER if still current.
+GENERATION must match the buffer's current refresh generation."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (when (and (derived-mode-p 'term-sessions-list-mode)
@@ -545,7 +546,8 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
           (kill-buffer output-buffer))))))
 
 (defun term-sessions-list--start-remote-query (directory buffer generation)
-  "Start an asynchronous zmx list query for remote DIRECTORY."
+  "Start an asynchronous zmx list query for remote DIRECTORY.
+Results arrive in BUFFER when GENERATION is still current."
   (cond
    ((term-sessions-list--failed-remote-p directory)
     nil)
@@ -590,9 +592,9 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
     (process-put process 'term-sessions-list-cancelled t)
     (when (process-live-p process)
       (delete-process process))
-    (when-let ((timer (process-get process 'term-sessions-list-timer)))
+    (when-let* ((timer (process-get process 'term-sessions-list-timer)))
       (cancel-timer timer))
-    (when-let ((buffer (process-buffer process)))
+    (when-let* ((buffer (process-buffer process)))
       (when (buffer-live-p buffer)
         (kill-buffer buffer))))
   (setq term-sessions-list--pending-remote-queries nil))
@@ -645,7 +647,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
   (save-excursion
     (goto-char (point-min))
     (while (not (eobp))
-      (when-let ((entry (tabulated-list-get-id)))
+      (when-let* ((entry (tabulated-list-get-id)))
         (when (term-sessions-list--entry-marked-p entry)
           (tabulated-list-put-tag "*")))
       (forward-line 1))))
@@ -1011,7 +1013,7 @@ With prefix argument, unmark matching sessions instead."
     (term-sessions-list-narrow-sessions
      (format "Updated < %s" duration)
      (lambda (entry)
-       (when-let ((updated (term-sessions-list--updated-seconds entry)))
+       (when-let* ((updated (term-sessions-list--updated-seconds entry)))
          (< (- (float-time) updated) seconds))))))
 
 (provide 'term-sessions-list)

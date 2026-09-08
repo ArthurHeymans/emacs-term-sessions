@@ -7,7 +7,7 @@
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: terminals, processes, tools
-;; URL: https://github.com/arthur/term-sessions
+;; URL: https://github.com/ArthurHeymans/emacs-term-sessions
 
 ;;; Commentary:
 
