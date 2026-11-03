@@ -24,6 +24,7 @@ Install =zmx= on each session host, clone this repository, and evaluate:
 For a Nix development environment with Emacs and zmx, run =nix develop=.
 
 - =M-x term-sessions-open= — choose a session, or type a new name to create one.
+- =M-x term-sessions-new= — create and attach to an unused numbered name, such as =term-1=.
 - =M-x term-sessions-list= — browse sessions; =RET= attaches to the selected one.
 - =M-x term-sessions-kill= — end a session, not just its Emacs buffer.
 
