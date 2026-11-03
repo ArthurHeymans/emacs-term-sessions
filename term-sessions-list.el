@@ -78,6 +78,8 @@ out an id that is still tagged on an in-flight remote query.")
     (define-key map (kbd "g") #'revert-buffer)
     (define-key map (kbd "R") #'term-sessions-list-clear-failed-remotes)
     (define-key map (kbd "k") #'term-sessions-list-kill)
+    (define-key map (kbd "l") #'term-sessions-list-set-label)
+    (define-key map (kbd "d") #'term-sessions-list-remove-label)
     (define-key map (kbd "h") #'term-sessions-list-history)
     (define-key map (kbd "s") #'term-sessions-list-send-command)
     (define-key map (kbd "y") #'term-sessions-list-store-org-link)
@@ -124,10 +126,11 @@ out an id that is still tagged on an in-flight remote query.")
   "Return responsive column widths for TOTAL-WIDTH or the selected window."
   (let* ((padding 2)
          (window-width (or total-width (window-body-width) 100))
-         (budget (max 80 (- window-width (* padding 7))))
+         (budget (max 80 (- window-width (* padding 8))))
          (fixed-width (+ 16 16 7))
-         (variable-budget (max 44 (- budget fixed-width)))
+         (variable-budget (max 56 (- budget fixed-width)))
          (base '((name 12 2 32)
+                 (labels 12 3 nil)
                  (where 8 2 28)
                  (project 6 1 24)
                  (cwd 10 4 nil)
@@ -141,6 +144,7 @@ out an id that is still tagged on an in-flight remote query.")
   "Return a `tabulated-list-format' scaled for TOTAL-WIDTH."
   (let ((widths (term-sessions-list--column-widths total-width)))
     (vector (list "Name" (term-sessions--column-width widths 'name) t)
+            (list "Labels" (term-sessions--column-width widths 'labels) t)
             (list "Where" (term-sessions--column-width widths 'where) t)
             (list "Project" (term-sessions--column-width widths 'project) t)
             (list "Created" (term-sessions--column-width widths 'created) t)
@@ -251,6 +255,8 @@ out an id that is still tagged on an in-flight remote query.")
            (list (format "%s  clients:%s"
                          (term-sessions-list--entry-label entry)
                          (or (plist-get entry :clients) ""))
+                 (when-let* ((labels (plist-get entry :labels)))
+                   (concat "labels: " (term-sessions--format-labels labels)))
                  (when-let* ((cwd (plist-get entry :cwd)))
                    (format "cwd: %s" cwd))
                  (when-let* ((command (plist-get entry :command)))
@@ -453,7 +459,7 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
          (lambda (line)
            (unless (or (string-empty-p (string-trim line))
                        (string-prefix-p "no sessions found" line))
-             (let ((entry (term-sessions--parse-key-value-fields line)))
+             (let ((entry (term-sessions--parse-key-value-fields line t)))
                (when (plist-get entry :name)
                  entry))))
          (split-string output "\n" t))))
@@ -478,7 +484,10 @@ remotes before `term-sessions-list-failed-remote-retry-delay' has elapsed."
                                :created created
                                :updated updated
                                :updated-raw updated-raw))))
-        (push (list id (vector name where project created updated clients cwd cmd)) rows)))
+        (push (list id (vector name
+                               (term-sessions--format-labels (plist-get entry :labels))
+                               where project created updated clients cwd cmd))
+              rows)))
     (nreverse rows)))
 
 (defun term-sessions-list--rows-without-directory (rows directory)
@@ -871,6 +880,22 @@ operation."
                       (error-message-string err))))))
       (setq term-sessions-list--marked-entries nil)
       (revert-buffer))))
+
+(defun term-sessions-list-set-label ()
+  "Set or change a label on the session at point."
+  (interactive)
+  (let* ((entry (term-sessions-list--entry-at-point))
+         (change (term-sessions--read-label-change entry)))
+    (apply #'term-sessions-set-label entry change)
+    (revert-buffer)))
+
+(defun term-sessions-list-remove-label ()
+  "Remove a label from the session at point."
+  (interactive)
+  (let* ((entry (term-sessions-list--entry-at-point))
+         (key (term-sessions--read-label-removal entry)))
+    (term-sessions-remove-label entry key)
+    (revert-buffer)))
 
 (defun term-sessions-list-history ()
   "Show history for selected sessions."
