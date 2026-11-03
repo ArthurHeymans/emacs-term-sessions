@@ -83,6 +83,7 @@ Choose a terminal frontend:
 Then run:
 
 - =M-x term-sessions-open= — open an existing session, or create it when the name does not match
+- =M-x term-sessions-new= — create and attach to a new auto-numbered session
 - =M-x term-sessions-list= — browse sessions
 - =M-x term-sessions-kill= — kill a session
 
@@ -98,6 +99,14 @@ Additional commands:
 - =M-x term-sessions-store-org-link=
 
 =term-sessions-open= behaves like =find-file=: choose an existing completion to reopen it, or type a new name to create and attach to it.
+
+=term-sessions-new= avoids the name prompt.  It uses =term-sessions-new-prefix=
+(default ="term"=), followed by =-1=, =-2=, and so on, choosing the first unused
+number according to zmx on the current host.  This also skips sessions surviving
+an Emacs restart.  Both commands accept =C-u= to prompt for a creation command.
+From a TRAMP directory, the new session is created on that remote host.
+The prefix is connection-local aware and independent of =ZMX_SESSION_PREFIX=.
+Simultaneous clients can still race between checking a name and creating it.
 
 * Remote and TRAMP behavior
 
