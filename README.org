@@ -51,6 +51,8 @@ Use =M-x term-sessions-store-org-link= to save a session link in your notes.
 
 * More
 
+The session list shows zmx labels: =l= sets or changes a label, and =d= removes one.
+
 See the [[file:docs/reference.org][reference]] for frontend and TRAMP settings, Org links, command execution,
 and the comparison with =detached.el=.
 

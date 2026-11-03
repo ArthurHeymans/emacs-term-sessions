@@ -116,6 +116,30 @@ Local directories attach locally.  For remote directories, =term=, =eat=, =ghost
 
 =term-sessions-list= can include already-open TRAMP remotes.  If a remote query fails, the list skips that remote for =term-sessions-list-failed-remote-retry-delay= seconds to avoid repeated TRAMP reconnect prompts on every refresh.  Press =R= in the list buffer, or run =M-x term-sessions-list-clear-failed-remotes=, to force retry after fixing the connection.
 
+* Session labels
+
+With a zmx version supporting labels, =term-sessions-list= shows a sortable
+=Labels= column.  Press =l= to set or change a label on the session at point;
+completion offers its current keys and pre-fills the selected key's value.
+Press =d= to remove a label.  Both actions refresh the list after success and
+operate on the selected row's host, including TRAMP remotes.
+
+=M-x term-sessions-set-label= and =M-x term-sessions-remove-label= also work
+outside the list.  Setting an empty value removes the key.  Keys and values
+use zmx's letters, digits, dot, underscore and hyphen syntax; =name=,
+=start_dir= and =cmd= are reserved keys.  For example:
+
+#+begin_src emacs-lisp
+(term-sessions-set-label "dev" "project" "api")
+(term-sessions-set-label "dev" "env" "test")
+(term-sessions-remove-label "dev" "env")
+#+end_src
+
+Labels are mutable backend-owned metadata, not session names.  They survive
+Emacs restarts while the zmx session lives, but disappear when it ends.
+Older zmx versions still list sessions with an empty Labels column; label
+commands report backend errors rather than silently storing Emacs-only data.
+
 * Org links
 
 Org links store a session spec with the original TRAMP directory/cwd, command, frontend, project, timestamp, and recreate policy.

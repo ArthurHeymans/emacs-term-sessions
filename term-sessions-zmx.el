@@ -183,7 +183,7 @@ The output buffer is only kept when a window is displaying it."
     ("cwd" . :cwd)
     ("current_cmd" . :current-cmd))
   "Known `zmx list' field names mapped to plist keys.
-Unknown fields are ignored so backend output cannot intern new symbols.")
+Other fields can be retained as string-keyed labels, never interned.")
 
 (defconst term-sessions--zmx-version-fields
   '(("zmx" . :zmx)
@@ -192,16 +192,27 @@ Unknown fields are ignored so backend output cannot intern new symbols.")
     ("log_dir" . :log_dir))
   "Known `zmx version' field names mapped to plist keys.")
 
-(defun term-sessions--parse-key-value-fields (line)
+(defun term-sessions--parse-key-value-fields (line &optional include-labels)
   "Parse tab-separated key=value fields from LINE into a plist.
-Only fields listed in `term-sessions--zmx-list-fields' are returned."
-  (let (plist)
+Fields in `term-sessions--zmx-list-fields' become plist keys.
+With INCLUDE-LABELS, retain other fields as a string-keyed alist in :labels,
+except known task/error metadata.  Never intern backend-provided names.
+Repeated built-in keys are labels and cannot overwrite session identity."
+  (let (plist labels)
     (dolist (field (split-string (string-trim line) "\t" t))
       (when (string-match "\\`\\([^=]+\\)=\\(.*\\)\\'" field)
-        (when-let* ((key (cdr (assoc (match-string 1 field)
-                                     term-sessions--zmx-list-fields))))
-          (setq plist (plist-put plist key (match-string 2 field))))))
-    plist))
+        (let* ((name (match-string 1 field))
+               (value (match-string 2 field))
+               (key (cdr (assoc name term-sessions--zmx-list-fields))))
+          (cond
+           ((and key (not (plist-member plist key)))
+            (setq plist (plist-put plist key value)))
+           ((and include-labels
+                 (not (member name '("ended" "exit_code" "err")))
+                 (not (and (equal name "status")
+                           (string-match-p "\terr=" line))))
+            (push (cons name value) labels))))))
+    (if labels (plist-put plist :labels (nreverse labels)) plist)))
 
 (defun term-sessions--zmx-version-info ()
   "Return parsed `zmx version' output as a plist.
@@ -302,8 +313,8 @@ once and pass it here."
 (defun term-sessions--zmx-list-sessions ()
   "Return detailed active zmx sessions as plists.
 Fields include at least :name, and may include :pid, :clients, :created,
-:start_dir, :cmd, and :updated-time.  Propagate `zmx list' errors so callers
-can distinguish failures from an empty session list."
+:start_dir, :cmd, :labels, and :updated-time.  Propagate `zmx list' errors
+so callers can distinguish failures from an empty session list."
   ;; Resolve the log directory once so listing N sessions does not spawn N
   ;; `zmx version' processes.
   (let* ((log-dir (term-sessions--zmx-log-dir))
@@ -313,7 +324,7 @@ can distinguish failures from an empty session list."
            (lambda (line)
              (unless (or (string-empty-p (string-trim line))
                          (string-prefix-p "no sessions found" line))
-               (let ((entry (term-sessions--parse-key-value-fields line)))
+               (let ((entry (term-sessions--parse-key-value-fields line t)))
                  (when-let* ((name (plist-get entry :name)))
                    (plist-put entry :updated-time
                               (term-sessions--zmx-log-mtime name log-dir))
@@ -336,6 +347,7 @@ can distinguish failures from an empty session list."
                      (plist-get session :cmd)
                      "")
         :clients (or (plist-get session :clients) "")
+        :labels (plist-get session :labels)
         :updated-time (plist-get session :updated-time)))
 
 (defun term-sessions--completion-entry-for-session (session &optional directory)
@@ -354,7 +366,9 @@ can distinguish failures from an empty session list."
        (when (not (string-empty-p cwd))
          (format "  %s" (abbreviate-file-name cwd)))
        (when (not (string-empty-p command))
-         (format "  %s" command))))))
+         (format "  %s" command))
+       (when (plist-get entry :labels)
+         (concat "  " (term-sessions--format-labels (plist-get entry :labels))))))))
 
 (defun term-sessions--session-completion-table (&optional sessions directory)
   "Return a completion table for SESSIONS at DIRECTORY.
@@ -412,6 +426,67 @@ passwd and ask zmx to create missing sessions with that login shell."
                 " \"$SHELL\" -l")
       (term-sessions--command-string term-sessions-zmx-program
                                      (term-sessions--attach-args name command)))))
+
+(defun term-sessions--format-labels (labels)
+  "Return a readable key=value string for the string-keyed alist LABELS."
+  (mapconcat (lambda (label) (concat (car label) "=" (cdr label))) labels " "))
+
+(defun term-sessions--zmx-get-labels (name)
+  "Return the labels of session NAME as a string-keyed alist.
+NAME may be a session entry, including a remote backend directory."
+  (let* ((default-directory (term-sessions--entry-directory name))
+         (output (term-sessions--zmx "get" (term-sessions--entry-name name)))
+         labels)
+    (dolist (field (split-string output "[[:space:]]+" t))
+      (when (string-match "\\`\\([^=]+\\)=\\(.*\\)\\'" field)
+        (push (cons (match-string 1 field) (match-string 2 field)) labels)))
+    (nreverse labels)))
+
+(defun term-sessions--read-label-session ()
+  "Read a session entry for a label operation, including known remotes."
+  (if (fboundp 'term-sessions--read-existing-session-entry)
+      (term-sessions--read-existing-session-entry "Labels for session: ")
+    (term-sessions--read-name "Labels for session: " t)))
+
+(defun term-sessions--read-label-change (name)
+  "Read a label key and value for session NAME, returning a two-item list."
+  (let* ((labels (term-sessions--zmx-get-labels name))
+         (key (completing-read "Label key: " labels nil nil)))
+    (list key (read-string "Label value (empty removes): "
+                           (cdr (assoc key labels))))))
+
+(defun term-sessions--read-label-removal (name)
+  "Read an existing label key to remove from session NAME."
+  (let ((labels (term-sessions--zmx-get-labels name)))
+    (unless labels (user-error "Session has no labels"))
+    (completing-read "Remove label: " labels nil t)))
+
+;;;###autoload
+(defun term-sessions-set-label (name key value)
+  "Set label KEY to VALUE on session NAME, replacing any previous value.
+An empty VALUE removes KEY.  NAME may be a session entry plist.
+Keys and values follow zmx's letters, digits, dot, underscore and hyphen
+syntax.  Labels belong to the live zmx session, not an Emacs-side database."
+  (interactive
+   (let ((entry (term-sessions--read-label-session)))
+     (cons entry (term-sessions--read-label-change entry))))
+  (unless (and (string-match-p "\\`[A-Za-z0-9_.-]+\\'" key)
+               (not (member key '("name" "start_dir" "cmd"))))
+    (user-error "Invalid or reserved zmx label key: %s" key))
+  (unless (string-match-p "\\`[A-Za-z0-9_.-]*\\'" value)
+    (user-error "Invalid zmx label value: %s" value))
+  (let ((default-directory (term-sessions--entry-directory name)))
+    (term-sessions--zmx "set" (term-sessions--entry-name name)
+                        (concat key "=" value))))
+
+;;;###autoload
+(defun term-sessions-remove-label (name key)
+  "Remove label KEY from session NAME.
+NAME may be a session entry plist, including a remote backend directory."
+  (interactive
+   (let ((entry (term-sessions--read-label-session)))
+     (list entry (term-sessions--read-label-removal entry))))
+  (term-sessions-set-label name key ""))
 
 ;;;###autoload
 (defun term-sessions-kill (name &optional force)
