@@ -491,10 +491,12 @@ NAME may be a session entry plist, including a remote backend directory."
 ;;;###autoload
 (defun term-sessions-kill (name &optional force)
   "Kill zmx session NAME.
+Ask for confirmation unless `term-sessions-confirm-kill' is nil.
 With prefix argument FORCE, pass --force to zmx."
   (interactive (list (term-sessions--read-name "Kill session: " t)
                      current-prefix-arg))
-  (when (yes-or-no-p (format "Kill zmx session `%s'? " name))
+  (when (or (not term-sessions-confirm-kill)
+            (yes-or-no-p (format "Kill zmx session `%s'? " name)))
     (apply #'term-sessions--zmx (append (list "kill" name)
                                         (when force (list "--force"))))
     (message "Killed zmx session %s" name)))

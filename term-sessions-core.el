@@ -38,6 +38,14 @@ Currently only `zmx' is implemented."
   :group 'term-sessions
   :type 'integer)
 
+(defcustom term-sessions-confirm-kill t
+  "Whether to ask for confirmation before killing sessions.
+When nil, `term-sessions-kill' and `term-sessions-list-kill' kill sessions
+without prompting, including when multiple sessions are selected.
+This does not affect whether zmx is passed the --force option."
+  :group 'term-sessions
+  :type 'boolean)
+
 (defvar term-sessions-name-history nil
   "History of session names read by term-sessions commands.")
 
