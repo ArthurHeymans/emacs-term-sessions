@@ -21,6 +21,13 @@
 
 (defvar org-stored-links)
 
+(defcustom term-sessions-list-show-details t
+  "Whether to show details for the session at point through ElDoc.
+When nil, the session list does not provide ElDoc documentation.
+Changes take effect in existing session list buffers."
+  :group 'term-sessions
+  :type 'boolean)
+
 (defcustom term-sessions-list-include-open-remotes t
   "When non-nil, `term-sessions-list' includes all open TRAMP remotes.
 The list always includes the local zmx server.  Open remotes are discovered via
@@ -249,7 +256,8 @@ out an id that is still tagged on an in-flight remote query.")
 
 (defun term-sessions-list-eldoc (_callback)
   "Show session details in Eldoc for the session at point."
-  (when-let* ((entry (tabulated-list-get-id)))
+  (when-let* ((entry (and term-sessions-list-show-details
+                         (tabulated-list-get-id))))
     (string-join
      (delq nil
            (list (format "%s  clients:%s"
@@ -863,13 +871,15 @@ operation."
   (term-sessions-open (term-sessions-list--entry-at-point)))
 
 (defun term-sessions-list-kill ()
-  "Kill selected sessions."
+  "Kill selected sessions.
+Ask for confirmation unless `term-sessions-confirm-kill' is nil."
   (interactive)
   (let ((entries (term-sessions-list--selected-entries)))
-    (when (yes-or-no-p (if (> (length entries) 1)
-                           (format "Kill %d term sessions? " (length entries))
-                         (format "Kill zmx session `%s'? "
-                                 (plist-get (car entries) :name))))
+    (when (or (not term-sessions-confirm-kill)
+              (yes-or-no-p (if (> (length entries) 1)
+                              (format "Kill %d term sessions? " (length entries))
+                            (format "Kill zmx session `%s'? "
+                                    (plist-get (car entries) :name)))))
       (dolist (entry entries)
         (let ((default-directory (term-sessions--entry-directory entry)))
           (condition-case err
