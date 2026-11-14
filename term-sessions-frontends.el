@@ -19,6 +19,7 @@
 (declare-function ghostel-mode "ghostel" ())
 (declare-function ghostel-semi-char-mode "ghostel" ())
 (declare-function ghostel-exec "ghostel" (buffer program &optional args))
+(declare-function ghostel-set-password-pid "ghostel" (pid))
 (declare-function ebb-mode "ebb" ())
 (declare-function ebb-char-mode "ebb" ())
 (declare-function ebb-semi-char-mode "ebb" ())
@@ -162,6 +163,74 @@ This isolates Ghostel's private process variable from the frontend adapter."
                    (term-sessions--ghostel-buffer-name-for-title
                     name fallback-name title)
                    t)))))
+
+(defun term-sessions--ghostel-try-password-pid (name)
+  "Set the password PID for session NAME, returning non-nil on success."
+  (condition-case nil
+      (when-let* ((pid (term-sessions--zmx-session-pid name))
+                  (tty (ghostel-set-password-pid pid)))
+        ;; An empty ttname can resolve to /dev, not a terminal.
+        (and (stringp tty) (not (file-directory-p tty))))
+    (error nil)))
+
+(defun term-sessions--ghostel-clear-password-pid (buffer _event)
+  "Clear BUFFER's password PID when its Ghostel attach exits."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      ;; An old process's sentinel must not clear a replacement attach.
+      (unless (term-sessions--ghostel-live-process-p)
+        (when ghostel--process
+          (remove-function (process-filter ghostel--process)
+                           'term-sessions-password-init))
+        (ghostel-set-password-pid nil)))))
+
+(defun term-sessions--ghostel-password-initializer (name process)
+  "Return a self-removing password PID initializer for NAME and PROCESS.
+Capture the attach's zmx configuration rather than the filter caller's."
+  (term-sessions-zmx--with-environment
+    (let ((buffer (current-buffer))
+          (directory default-directory)
+          (environment (copy-sequence process-environment))
+          (program term-sessions-zmx-program)
+          (zmx-dir term-sessions-zmx-dir)
+          (prefix term-sessions-zmx-session-prefix))
+      (letrec
+          ((initialize
+            (lambda (&rest _)
+              (when (and (advice-function-member-p initialize (process-filter process))
+                         (or (not (buffer-live-p buffer))
+                             (not (process-live-p process))
+                             (with-current-buffer buffer
+                               (or (not (and (derived-mode-p 'ghostel-mode)
+                                             (eq process ghostel--process)
+                                             (equal name term-sessions-current-name)
+                                             (not (file-remote-p default-directory))))
+                                   (let ((default-directory directory)
+                                         (process-environment environment)
+                                         (term-sessions-zmx-program program)
+                                         (term-sessions-zmx-dir zmx-dir)
+                                         (term-sessions-zmx-session-prefix prefix))
+                                     (term-sessions--ghostel-try-password-pid name))))))
+                (remove-function (process-filter process) 'term-sessions-password-init)))))
+        initialize))))
+
+(defun term-sessions--install-ghostel-password-detection (name)
+  "Detect local zmx session NAME's password prompts in the current buffer.
+Try immediately, then after process output until Ghostel finds the inner
+shell's TTY.  Use the TTY return value added after Ghostel 0.65.0."
+  (when-let* ((process (and (term-sessions--ghostel-live-process-p)
+                           ghostel--process)))
+    (remove-function (process-filter process) 'term-sessions-password-init)
+    (when (and (fboundp 'ghostel-set-password-pid)
+               (derived-mode-p 'ghostel-mode)
+               (not (file-remote-p default-directory)))
+      (ghostel-set-password-pid nil)
+      (add-hook 'ghostel-exit-functions
+                #'term-sessions--ghostel-clear-password-pid nil t)
+      (let ((initialize (term-sessions--ghostel-password-initializer name process)))
+        (add-function :after (process-filter process) initialize
+                      '((name . term-sessions-password-init)))
+        (funcall initialize)))))
 
 (defun term-sessions--attach-shell (directory)
   "Return the shell program to run an attach command in DIRECTORY.
@@ -369,12 +438,14 @@ the shell process rather than the attach itself (see
   "Open COMMAND in ghostel BUFFER-NAME for session NAME."
   (unless term-sessions-ghostel-open-function
     (user-error "Set `term-sessions-ghostel-open-function' before using ghostel"))
-  (let ((buffer (or (funcall term-sessions-ghostel-open-function buffer-name command)
-                    (current-buffer))))
-    (with-current-buffer buffer
-      (term-sessions--mark-buffer name spec t)
-      (term-sessions--install-ghostel-title-tracking name buffer-name)
-      (rename-buffer buffer-name t))))
+  (term-sessions-zmx--with-environment
+    (let ((buffer (or (funcall term-sessions-ghostel-open-function buffer-name command)
+                     (current-buffer))))
+      (with-current-buffer buffer
+        (term-sessions--mark-buffer name spec t)
+        (term-sessions--install-ghostel-title-tracking name buffer-name)
+        (term-sessions--install-ghostel-password-detection name)
+        (rename-buffer buffer-name t)))))
 
 (defun term-sessions--read-session-entry (&optional prompt require-existing)
   "Read a session entry with PROMPT, including already-open TRAMP remotes.

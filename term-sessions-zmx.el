@@ -331,6 +331,23 @@ so callers can distinguish failures from an empty session list."
                    (term-sessions--zmx-enrich-session-process-info entry)))))
            (split-string output "\n" t)))))
 
+(defun term-sessions--zmx-session-pid (name)
+  "Return the inner shell PID of zmx session NAME, or nil.
+Resolve NAME with the same session prefix as an attach.  Query only list
+metadata, without probing log files or enriching other sessions' processes.
+Signal errors from zmx so callers can choose whether to retry."
+  (term-sessions-zmx--with-environment
+    (let ((full-name (concat (or (getenv "ZMX_SESSION_PREFIX") "") name)))
+      (seq-some
+       (lambda (line)
+         (let* ((entry (term-sessions--parse-key-value-fields line))
+                (pid (plist-get entry :pid)))
+           (when (and (equal (plist-get entry :name) full-name)
+                      (stringp pid)
+                      (string-match-p "\\`[1-9][0-9]*\\'" pid))
+             (string-to-number pid))))
+       (split-string (term-sessions--zmx "list") "\n" t)))))
+
 (defun term-sessions--active-p (name)
   "Return non-nil when zmx session NAME is active."
   (member name (term-sessions--zmx-list-names)))
