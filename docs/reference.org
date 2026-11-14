@@ -192,6 +192,24 @@ usable =:session= name is present, =:term-session t= uses
 
 =ghostel= uses its native TRAMP-aware =ghostel-exec= path and keeps Ghostel title/directory tracking while prefixing buffer names with the term session name.  =term-sessions-ghostel-open-function= remains customizable for users who want a different Ghostel opener.
 
+Local Ghostel attaches automatically pass the inner zmx shell PID to
+=ghostel-set-password-pid=.  This lets Ghostel detect password prompts on the
+session's own terminal (for example, =sudo=) and use its masked minibuffer even
+though the attach client has a different PTY.  Setup uses the setter's TTY return
+value, added after 0.65.0 in Ghostel commit =98be9d95=.
+
+Discovery runs immediately and, if the session is not ready, after subsequent
+process output.  The temporary process-filter callback removes itself once a
+TTY is found; no polling timer is used.  The PID is cleared when the attach
+exits and reset when opening another session in the buffer.  Custom openers
+that detach or switch sessions while keeping the frontend process alive must
+also clear the PID with =(ghostel-set-password-pid nil)= or set the new session's
+PID: the password is sent to whatever program currently receives buffer input.
+
+Remote attaches retain Ghostel's regex-based detection; remote PIDs are never
+passed to the local terminal probe.  Ghostel versions without the setter still
+attach normally, without this additional password detection.
+
 * Internal modules
 
 The package is split by responsibility:

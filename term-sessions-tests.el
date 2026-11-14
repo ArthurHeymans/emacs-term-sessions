@@ -8,6 +8,9 @@
 (require 'term-sessions)
 
 (defvar ghostel-buffer-name-function)
+(defvar ghostel-detect-password-prompts)
+(defvar ghostel--password-pid)
+(defvar ghostel-use-native-pty)
 
 (ert-deftest term-sessions-test-attach-command-quotes-args ()
   (let ((term-sessions-zmx-program "zmx"))
@@ -128,6 +131,43 @@
                    '((:name "dev" :pid "123" :clients "0" :start_dir "/repo"
                      :cmd "/bin/bash -l" :updated-time nil :cwd "/repo/subdir"
                      :current-cmd "nvim src/main.c"))))))
+
+(ert-deftest term-sessions-test-zmx-session-pid-matches-exact-name-and-prefix ()
+  (let ((process-environment (copy-sequence process-environment))
+        (term-sessions-zmx-dir "/tmp/custom-zmx")
+        (term-sessions-zmx-session-prefix "work-"))
+    (cl-letf (((symbol-function 'term-sessions--call)
+               (lambda (program &rest args)
+                 (should (equal program term-sessions-zmx-program))
+                 (should (equal args '("list")))
+                 (should (equal (getenv "ZMX_DIR") "/tmp/custom-zmx"))
+                 (should (equal (getenv "ZMX_SESSION_PREFIX") "work-"))
+                 (concat "name=dev\tpid=11\n"
+                         "name=work-dev-other\tpid=22\n"
+                         "name=work-dev\tpid=123\tclients=1\n")))
+              ((symbol-function 'term-sessions--ensure-zmx) #'ignore))
+      (should (= (term-sessions--zmx-session-pid "dev") 123))
+      (should-not (term-sessions--zmx-session-pid "missing")))))
+
+(ert-deftest term-sessions-test-zmx-session-pid-validates-pid ()
+  (let ((process-environment (copy-sequence process-environment))
+        (term-sessions-zmx-session-prefix nil))
+    (setenv "ZMX_SESSION_PREFIX" nil)
+    (dolist (pid '("" "0" "-1" "12junk" "1.5" " 123"))
+      (cl-letf (((symbol-function 'term-sessions--zmx)
+                 (lambda (&rest _args) (concat "name=dev\tpid=" pid "\n"))))
+        (should-not (term-sessions--zmx-session-pid "dev"))))
+    (cl-letf (((symbol-function 'term-sessions--zmx)
+               (lambda (&rest _args) "name=dev\tclients=0\n")))
+      (should-not (term-sessions--zmx-session-pid "dev")))))
+
+(ert-deftest term-sessions-test-zmx-session-pid-honors-inherited-prefix ()
+  (let ((process-environment (copy-sequence process-environment))
+        (term-sessions-zmx-session-prefix nil))
+    (setenv "ZMX_SESSION_PREFIX" "inherited-")
+    (cl-letf (((symbol-function 'term-sessions--zmx)
+               (lambda (&rest _args) "name=inherited-dev\tpid=123\n")))
+      (should (= (term-sessions--zmx-session-pid "dev") 123)))))
 
 (ert-deftest term-sessions-test-active-p-uses-list ()
   (cl-letf (((symbol-function 'term-sessions--zmx-list-names)
@@ -885,6 +925,197 @@
         (makunbound 'ghostel-buffer-name-function))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(defmacro term-sessions-tests--with-ghostel-password-detection (&rest body)
+  "Run BODY with a pipe-backed Ghostel attach and a fake zmx lookup."
+  (declare (indent 0) (debug t))
+  `(let* ((test-buffer (generate-new-buffer " *ghostel-test*"))
+          (outputs nil)
+          (original-filter (lambda (_process output) (push output outputs)))
+          (process (make-pipe-process :name "term-sessions-password-test"
+                                      :buffer test-buffer :noquery t
+                                      :filter original-filter)))
+     (unwind-protect
+         (with-current-buffer test-buffer
+           (setq-local major-mode 'ghostel-mode
+                       ghostel--process process)
+           (term-sessions--mark-buffer "dev" nil t)
+           (let ((pids nil)
+                 (queries 0)
+                 (lookup (lambda (_name) 123))
+                 (tty-result "/dev/pts/4"))
+             (cl-letf (((symbol-function 'term-sessions--zmx-session-pid)
+                        (lambda (name)
+                          (should (eq (current-buffer) test-buffer))
+                          (setq queries (1+ queries))
+                          (funcall lookup name)))
+                       ((symbol-function 'ghostel-set-password-pid)
+                        (lambda (pid)
+                          (push pid pids)
+                          (when pid tty-result))))
+               ,@body)))
+       (delete-process process)
+       (when (buffer-live-p test-buffer)
+         (kill-buffer test-buffer)))))
+
+(ert-deftest term-sessions-test-ghostel-password-detection-installed-after-open ()
+  (term-sessions-tests--with-ghostel-password-detection
+    (let ((term-sessions-ghostel-open-function
+           (lambda (_buffer-name _command)
+             (should-not pids)
+             test-buffer)))
+      (term-sessions--open-ghostel "dev" "zmx attach dev" (buffer-name))
+      (should (equal pids '(123 nil)))
+      (should (= queries 1))
+      (should (eq (process-filter process) original-filter))
+      (should-not (advice-function-member-p 'term-sessions-password-init
+                                            (process-filter process))))))
+
+(ert-deftest term-sessions-test-ghostel-password-detection-retries-on-output ()
+  (term-sessions-tests--with-ghostel-password-detection
+    (setq lookup (lambda (_name)
+                   (pcase queries
+                     (1 (error "zmx not ready"))
+                     (2 nil)
+                     (_ 123)))
+          tty-result nil)
+    (term-sessions--install-ghostel-password-detection "dev")
+    (should (equal pids '(nil)))
+    (funcall (process-filter process) process "early output")
+    (should (= queries 2))
+    (should (equal pids '(nil)))
+    (funcall (process-filter process) process "shell has no TTY yet")
+    (should (equal pids '(123 nil)))
+    (should (advice-function-member-p 'term-sessions-password-init
+                                      (process-filter process)))
+    ;; Some Ghostel versions resolve Emacs's empty ttname to /dev.
+    (setq tty-result "/dev")
+    (funcall (process-filter process) process "still no TTY")
+    (should (advice-function-member-p 'term-sessions-password-init
+                                      (process-filter process)))
+    (setq tty-result "/dev/pts/4")
+    (funcall (process-filter process) process "Password: ")
+    (should (= queries 5))
+    (should (eq (process-filter process) original-filter))
+    (should-not (advice-function-member-p 'term-sessions-password-init
+                                          (process-filter process)))
+    (funcall (process-filter process) process "later output")
+    (should (= queries 5))
+    (should (equal (reverse outputs)
+                   '("early output" "shell has no TTY yet" "still no TTY"
+                     "Password: " "later output")))))
+
+(ert-deftest term-sessions-test-ghostel-password-detection-skips-unsupported-buffers ()
+  (dolist (reason '(remote old-ghostel wrong-mode dead-process))
+    (term-sessions-tests--with-ghostel-password-detection
+      (pcase reason
+        ('remote (setq default-directory "/ssh:example:/tmp/"))
+        ('wrong-mode (setq major-mode 'fundamental-mode))
+        ('dead-process (delete-process process)))
+      (cl-letf (((symbol-function 'ghostel-set-password-pid)
+                 (unless (eq reason 'old-ghostel)
+                   (lambda (pid) (push pid pids)))))
+        (term-sessions--install-ghostel-password-detection "dev")
+        (should (eq (process-filter process) original-filter))
+        (should-not pids)
+        (should (= queries 0))))))
+
+(ert-deftest term-sessions-test-ghostel-password-detection-retains-attach-environment ()
+  (term-sessions-tests--with-ghostel-password-detection
+    (setq lookup (lambda (_name) nil))
+    (let ((process-environment (copy-sequence process-environment))
+          (term-sessions-zmx-dir "/tmp/attach-zmx")
+          (term-sessions-zmx-session-prefix "work-")
+          (term-sessions-zmx-program "/bin/custom-zmx")
+          (default-directory "/tmp/"))
+      (setenv "ZMX_DIR" "/tmp/unrelated-zmx")
+      (term-sessions--install-ghostel-password-detection "dev"))
+    (setq lookup
+          (lambda (name)
+            (should (equal name "dev"))
+            (should (equal default-directory "/tmp/"))
+            (should (equal term-sessions-zmx-program "/bin/custom-zmx"))
+            (should (equal term-sessions-zmx-dir "/tmp/attach-zmx"))
+            (should (equal term-sessions-zmx-session-prefix "work-"))
+            (should (equal (getenv "ZMX_DIR") "/tmp/attach-zmx"))
+            (should (equal (getenv "ZMX_SESSION_PREFIX") "work-"))
+            (should (equal outputs '("output")))
+            123))
+    (with-temp-buffer
+      (setq default-directory "/ssh:unrelated:/tmp/")
+      (funcall (process-filter process) process "output"))
+    (should (equal pids '(123 nil)))
+    (should (eq (process-filter process) original-filter))))
+
+(ert-deftest term-sessions-test-ghostel-password-detection-stops-for-changed-attach ()
+  (dolist (reason '(dead-process replaced-process changed-session remote changed-mode killed-buffer))
+    (term-sessions-tests--with-ghostel-password-detection
+      (setq lookup (lambda (_name) nil))
+      (term-sessions--install-ghostel-password-detection "dev")
+      (pcase reason
+        ('dead-process (delete-process process))
+        ('replaced-process (setq ghostel--process nil))
+        ('changed-session (setq term-sessions-current-name "other"))
+        ('remote (setq default-directory "/ssh:example:/tmp/"))
+        ('changed-mode (fundamental-mode))
+        ('killed-buffer (kill-buffer test-buffer)))
+      (funcall (process-filter process) process "late output")
+      (should (= queries 1))
+      (should (equal pids '(nil)))
+      (should (eq (process-filter process) original-filter))
+      (should-not (advice-function-member-p 'term-sessions-password-init
+                                            (process-filter process))))))
+
+(ert-deftest term-sessions-test-ghostel-password-detection-replaces-pending-callback ()
+  (term-sessions-tests--with-ghostel-password-detection
+    (setq lookup (lambda (_name) nil))
+    (term-sessions--install-ghostel-password-detection "dev")
+    (let (old)
+      (advice-function-mapc
+       (lambda (function props)
+         (when (eq (alist-get 'name props) 'term-sessions-password-init)
+           (setq old function)))
+       (process-filter process))
+      (should old)
+      (term-sessions--mark-buffer "other" nil t)
+      (term-sessions--install-ghostel-password-detection "other")
+      (funcall old process "stale callback")
+      (should (= queries 2))
+      (should-not (advice-function-member-p old (process-filter process)))
+      (setq lookup (lambda (name)
+                     (should (equal name "other"))
+                     123))
+      (funcall (process-filter process) process "Password: ")
+      (should (= queries 3))
+      (should (equal pids '(123 nil nil)))
+      (should (eq (process-filter process) original-filter)))))
+
+(ert-deftest term-sessions-test-ghostel-password-detection-reinstall-is-idempotent ()
+  (term-sessions-tests--with-ghostel-password-detection
+    (setq lookup (lambda (_name) nil))
+    (dotimes (_ 3)
+      (term-sessions--install-ghostel-password-detection "dev"))
+    (setq lookup (lambda (_name) 123))
+    (funcall (process-filter process) process "Password: ")
+    (should (= queries 4))
+    (should (eq (process-filter process) original-filter))))
+
+(ert-deftest term-sessions-test-ghostel-password-detection-clears-on-exit ()
+  (dolist (pending '(nil t))
+    (term-sessions-tests--with-ghostel-password-detection
+      (when pending
+        (setq lookup (lambda (_name) nil)))
+      (term-sessions--install-ghostel-password-detection "dev")
+      (let ((before pids))
+        ;; An old sentinel must not clear the PID of a still-live attach.
+        (run-hook-with-args 'ghostel-exit-functions test-buffer "old process exited")
+        (should (equal pids before))
+        (delete-process process)
+        (run-hook-with-args 'ghostel-exit-functions test-buffer "finished")
+        (should (equal pids (cons nil before)))
+        (should (eq (process-filter process) original-filter))
+        (should-not (advice-function-member-p 'term-sessions-password-init
+                                              (process-filter process)))))))
 
 (ert-deftest term-sessions-test-remote-interactive-attach-supports-ssh-tramp-path ()
   (let ((default-directory "/ssh:example:/tmp"))
@@ -1979,6 +2210,57 @@
           (should (stringp (term-sessions--zmx-log-dir))))
       (when created
         (ignore-errors (term-sessions--zmx "kill" name))))))
+
+(ert-deftest term-sessions-test-real-ghostel-password-detection-integration ()
+  "Detect an inner PTY's no-echo state with both Ghostel PTY backends."
+  (skip-unless (executable-find term-sessions-zmx-program))
+  (skip-unless (require 'ghostel nil t))
+  (skip-unless (fboundp 'ghostel-set-password-pid))
+  ;; This integration needs the TTY return value added after 0.65.0.
+  (skip-unless
+   (with-temp-buffer
+     (cl-letf (((symbol-function 'ghostel--process-tty)
+                (lambda (_pid) "/dev/pts/4")))
+       (equal (ghostel-set-password-pid 123) "/dev/pts/4"))))
+  (dolist (native '(t nil))
+    (let* ((default-directory temporary-file-directory)
+           (term-sessions-zmx-dir (make-temp-file "ts-password-" t))
+           (term-sessions-zmx-session-prefix "work-")
+           (process-environment (copy-sequence process-environment))
+           (ghostel-use-native-pty native)
+           ;; Inspect detection without opening a password minibuffer in batch.
+           (ghostel-detect-password-prompts nil)
+           (name (format "term-sessions-password-test-%d" (emacs-pid)))
+           (buffer-name " *term-sessions-password-test*")
+           (command (combine-and-quote-strings
+                     '("/bin/sh" "-c"
+                       "stty -echo; printf 'Password: '; read -r password"))))
+      (setenv "ZMX_SESSION" nil)
+      (unwind-protect
+          ;; First create through attach, then reopen the existing session.
+          (dotimes (_ 2)
+            (term-sessions--open-ghostel
+             name (term-sessions--attach-command name command) buffer-name)
+            (with-current-buffer (get-buffer buffer-name)
+              (let ((deadline (+ (float-time) 5)))
+                (while (and (< (float-time) deadline)
+                            (not (and ghostel--password-pid
+                                      (eq (ghostel--password-prompt-detected-p) 'tty))))
+                  (accept-process-output nil 0.05)))
+              (should (integerp ghostel--password-pid))
+              (should (= ghostel--password-pid (term-sessions--zmx-session-pid name)))
+              (should (eq (ghostel--password-prompt-detected-p) 'tty))
+              (should-not (advice-function-member-p 'term-sessions-password-init
+                                                    (process-filter ghostel--process)))
+              (delete-process ghostel--process))
+            (kill-buffer (get-buffer buffer-name)))
+        (when-let* ((buffer (get-buffer buffer-name)))
+          (with-current-buffer buffer
+            (when (term-sessions--ghostel-live-process-p)
+              (delete-process ghostel--process)))
+          (kill-buffer buffer))
+        (ignore-errors (term-sessions--zmx "kill" name "--force"))
+        (delete-directory term-sessions-zmx-dir t)))))
 
 (ert-deftest term-sessions-test-real-zmx-labels-integration ()
   "Exercise label CRUD and list parsing against a real local zmx."
